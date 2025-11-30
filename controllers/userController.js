@@ -1,0 +1,160 @@
+const User = require('../models/User');
+
+// Get user profile
+exports.getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user profile',
+      error: error.message
+    });
+  }
+};
+
+// Update user profile
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const user = await User.findOneAndUpdate(
+      { firebaseUid: req.user.uid },
+      req.body,
+      { new: true, runValidators: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error updating user profile',
+      error: error.message
+    });
+  }
+};
+
+// Manage addresses
+exports.addAddress = async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // If setting as default, remove default from other addresses
+    if (req.body.isDefault) {
+      user.addresses.forEach(addr => {
+        addr.isDefault = false;
+      });
+    }
+    
+    user.addresses.push(req.body);
+    await user.save();
+    
+    res.status(201).json({
+      success: true,
+      data: user.addresses
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error adding address',
+      error: error.message
+    });
+  }
+};
+
+exports.updateAddress = async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    const addressIndex = user.addresses.id(req.params.addressId);
+    
+    if (!addressIndex) {
+      return res.status(404).json({
+        success: false,
+        message: 'Address not found'
+      });
+    }
+    
+    // If setting as default, remove default from other addresses
+    if (req.body.isDefault) {
+      user.addresses.forEach(addr => {
+        addr.isDefault = false;
+      });
+    }
+    
+    Object.assign(addressIndex, req.body);
+    await user.save();
+    
+    res.json({
+      success: true,
+      data: user.addresses
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error updating address',
+      error: error.message
+    });
+  }
+};
+
+exports.deleteAddress = async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    user.addresses.id(req.params.addressId).remove();
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Address deleted successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error deleting address',
+      error: error.message
+    });
+  }
+};
