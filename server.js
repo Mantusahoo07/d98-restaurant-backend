@@ -19,6 +19,21 @@ mongoose.connection.on('connected', () => {
   console.log('Connected to MongoDB');
 });
 
+// Root Route (Fix for "Cannot GET /")
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'D98 Restaurant Backend API is running 🚀',
+    endpoints: {
+      health: '/api/health',
+      menu: '/api/menu',
+      orders: '/api/orders',
+      users: '/api/users',
+      auth: '/api/auth'
+    }
+  });
+});
+
 // Routes
 app.use('/api/menu', require('./routes/menu'));
 app.use('/api/orders', require('./routes/orders'));
@@ -27,7 +42,10 @@ app.use('/api/auth', require('./routes/auth'));
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'D98 Restaurant API is running' });
+  res.json({ 
+    status: 'OK', 
+    message: 'D98 Restaurant API is running' 
+  });
 });
 
 const PORT = process.env.PORT || 5000;
