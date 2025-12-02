@@ -25,6 +25,36 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
+// Create user profile if not exists
+exports.createUserProfile = async (req, res) => {
+  try {
+    // Check existing user
+    let user = await User.findOne({ firebaseUid: req.user.uid });
+
+    if (!user) {
+      // Create new user
+      user = await User.create({
+        firebaseUid: req.user.uid,
+        name: req.body.name || req.user.name || "User",
+        email: req.user.email
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error("Create User Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error creating user profile",
+      error: error.message
+    });
+  }
+};
+
+
 // Update user profile
 exports.updateUserProfile = async (req, res) => {
   try {
