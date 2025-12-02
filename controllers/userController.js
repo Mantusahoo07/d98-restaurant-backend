@@ -188,3 +188,28 @@ exports.deleteAddress = async (req, res) => {
     });
   }
 };
+
+exports.getAllAddresses = async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      addresses: user.addresses || []
+    });
+  } catch (error) {
+    console.error("Get Addresses Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error loading addresses",
+      error: error.message
+    });
+  }
+};
