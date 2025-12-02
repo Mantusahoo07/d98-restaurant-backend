@@ -3,17 +3,19 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const auth = require('../middleware/auth');
 
-// All routes protected by Firebase Token middleware
+// Apply Firebase auth middleware
 router.use(auth);
 
-// ✔ CREATE USER (Required by frontend)
+// Create user (frontend requires this)
 router.post('/', userController.createUserProfile);
 
-// ✔ GET USER PROFILE
+// Get profile
 router.get('/profile', userController.getUserProfile);
 
-// ✔ UPDATE USER PROFILE
+// Update profile
 router.put('/profile', userController.updateUserProfile);
+
+router.get('/addresses', userController.getAllAddresses);
 
 // Address routes (fixed names to match frontend)
 router.post('/address', userController.addAddress);
