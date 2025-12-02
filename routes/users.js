@@ -18,8 +18,8 @@ router.put('/profile', userController.updateUserProfile);
 router.get('/addresses', userController.getAllAddresses);
 
 // Address routes (fixed names to match frontend)
-router.post('/address', userController.addAddress);
-router.put('/address/:addressId', userController.updateAddress);
-router.delete('/address/:addressId', userController.deleteAddress);
+router.post('/addresses', userController.addAddress);
+router.put('/addresses/:addressId', userController.updateAddress);
+router.delete('/addresses/:addressId', userController.deleteAddress);
 
 module.exports = router;
