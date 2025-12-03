@@ -3,15 +3,17 @@ const express = require('express');
 const router = express.Router();
 const Razorpay = require('razorpay');
 
-// Initialize Razorpay with LIVE keys
+// Initialize Razorpay
 const razorpay = new Razorpay({
-    key_id: process.env.RZP_LIVE_KEY_ID,
-    key_secret: process.env.RZP_LIVE_KEY_SECRET
+    key_id: process.env.RZP_KEY_ID || 'rzp_test_dr3j7aeO5e1ItX',
+    key_secret: process.env.RZP_KEY_SECRET
 });
 
-// Create Razorpay order (no auth required for this endpoint)
+// Create Razorpay order
 router.post('/create-order', async (req, res) => {
     try {
+        console.log('Creating Razorpay order with data:', req.body);
+        
         const { amount, receipt, currency = 'INR' } = req.body;
         
         // Validate amount
@@ -30,10 +32,14 @@ router.post('/create-order', async (req, res) => {
             amount: amountInPaise,
             currency: currency,
             receipt: receipt || `receipt_${Date.now()}`,
-            payment_capture: 1 // Auto capture payment
+            payment_capture: 1 // Auto capture
         };
         
+        console.log('Razorpay options:', options);
+        
         const order = await razorpay.orders.create(options);
+        
+        console.log('Razorpay order created:', order.id);
         
         res.json({
             success: true,
@@ -43,7 +49,7 @@ router.post('/create-order', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Razorpay order error:', error);
+        console.error('Razorpay order creation error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to create payment order',
@@ -52,25 +58,23 @@ router.post('/create-order', async (req, res) => {
     }
 });
 
-// Verify payment webhook (for live mode)
-router.post('/webhook', express.raw({type: 'application/json'}), (req, res) => {
-    const crypto = require('crypto');
-    
-    const shasum = crypto.createHmac('sha256', process.env.RZP_LIVE_WEBHOOK_SECRET);
-    shasum.update(JSON.stringify(req.body));
-    const digest = shasum.digest('hex');
-    
-    if (digest === req.headers['x-razorpay-signature']) {
-        // Payment is verified
-        const paymentData = req.body.payload.payment.entity;
+// Test endpoint to check if Razorpay is working
+router.get('/test', async (req, res) => {
+    try {
+        // Try to fetch payments to test connection
+        const payments = await razorpay.payments.all({ count: 1 });
         
-        console.log('✅ Webhook verified:', paymentData.id);
-        // Update your database here
-        
-        res.json({ status: 'ok' });
-    } else {
-        // Invalid signature
-        res.status(400).json({ status: 'invalid signature' });
+        res.json({
+            success: true,
+            message: 'Razorpay connection successful',
+            key_id: razorpay.key_id
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Razorpay connection failed',
+            error: error.message
+        });
     }
 });
 
