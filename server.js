@@ -42,6 +42,7 @@ app.use('/api/orders', require('./routes/orders'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/categories', require('./routes/categories'));
+app.use('/api/razorpay', require('./routes/razorpay'));
 
 // Health check
 app.get('/api/health', (req, res) => {
