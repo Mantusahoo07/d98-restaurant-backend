@@ -20,7 +20,37 @@ mongoose.connection.on('connected', () => {
   console.log('Connected to MongoDB');
 });
 
-// Root Route
+// ==================== TEMPORARY RAZORPAY ENDPOINT ====================
+// Add this section right here
+app.post('/api/razorpay/create-order', async (req, res) => {
+    try {
+        const { amount, receipt, currency = 'INR' } = req.body;
+        console.log('📞 Creating Razorpay order:', { amount, receipt, currency });
+        
+        // Generate a mock Razorpay order ID for testing
+        // In production, you would call the actual Razorpay API here
+        const mockOrderId = `order_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        
+        res.json({
+            success: true,
+            orderId: mockOrderId,
+            amount: amount,
+            currency: currency,
+            receipt: receipt || `receipt_${Date.now()}`,
+            note: 'This is a mock order ID for testing. Replace with real Razorpay integration.'
+        });
+    } catch (error) {
+        console.error('❌ Error creating mock Razorpay order:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create payment order',
+            error: error.message
+        });
+    }
+});
+// ==================== END TEMPORARY RAZORPAY ENDPOINT ====================
+
+// Root Route (Fix for "Cannot GET /")
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -31,7 +61,7 @@ app.get('/', (req, res) => {
       orders: '/api/orders',
       users: '/api/users',
       auth: '/api/auth',
-      razorpay: '/api/razorpay' // Added this
+      razorpay: '/api/razorpay/create-order'
     }
   });
 });
@@ -42,7 +72,6 @@ app.use('/api/orders', require('./routes/orders'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/categories', require('./routes/categories'));
-app.use('/api/razorpay', require('./routes/razorpay')); // Add this line
 
 // Health check
 app.get('/api/health', (req, res) => {
