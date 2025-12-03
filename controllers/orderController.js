@@ -240,27 +240,68 @@ const razorpay = new Razorpay({
   key_secret: process.env.RZP_KEY_SECRET
 });
 
+// Add this function to your orderController.js
 exports.createRazorpayOrder = async (req, res) => {
   try {
-    const { amount } = req.body;
-
+    console.log('Creating Razorpay order...');
+    console.log('Amount received:', req.body.amount);
+    
+    const { amount, receipt } = req.body;
+    
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    // Convert amount to paise
+    const amountInPaise = Math.round(amount * 100);
+    
+    // Check if Razorpay is configured
+    if (!process.env.RZP_KEY_ID || !process.env.RZP_KEY_SECRET) {
+      console.error('Razorpay keys not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway not configured'
+      });
+    }
+    
+    const Razorpay = require('razorpay');
+    const razorpay = new Razorpay({
+      key_id: process.env.RZP_KEY_ID,
+      key_secret: process.env.RZP_KEY_SECRET
+    });
+    
     const options = {
-      amount: Math.round(amount * 100),
-      currency: "INR",
-      receipt: "D98_" + Date.now(),
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: receipt || 'receipt_' + Date.now(),
+      notes: {
+        userId: req.user.uid,
+        orderType: 'food_delivery'
+      }
     };
-
+    
+    console.log('Creating Razorpay order with options:', options);
+    
     const order = await razorpay.orders.create(options);
-
+    
+    console.log('Razorpay order created:', order.id);
+    
     res.json({
       success: true,
-      orderId: order.id
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency
     });
-
+    
   } catch (error) {
+    console.error('Razorpay order creation error:', error);
     res.status(500).json({
       success: false,
-      message: "Razorpay order creation failed",
+      message: 'Failed to create payment order',
       error: error.message
     });
   }
