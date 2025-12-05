@@ -306,3 +306,42 @@ exports.createRazorpayOrder = async (req, res) => {
     });
   }
 };
+
+// In your update-payment endpoint (add this in orderController.js)
+exports.updatePayment = async (req, res) => {
+  try {
+    const { paymentId, razorpayOrderId, razorpaySignature, status, paymentStatus } = req.body;
+    
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          paymentId,
+          razorpayOrderId,
+          razorpaySignature,
+          status: status || 'confirmed',
+          paymentStatus: paymentStatus || 'paid'  // Update payment status
+        }
+      },
+      { new: true }
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: order
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error updating payment',
+      error: error.message
+    });
+  }
+};
