@@ -31,7 +31,7 @@ exports.createOrder = async (req, res) => {
     }
     
     const deliveryCharge = calculateDeliveryCharge(address);
-    const platformFee = subtotal * 0.02;
+    const platformFee = subtotal * 0.03;
     const gst = subtotal * 0.05;
     const total = subtotal + deliveryCharge + platformFee + gst;
     
@@ -203,11 +203,11 @@ exports.verifyOtp = async (req, res) => {
 // Helper function to calculate delivery charge
 function calculateDeliveryCharge(address) {
   if (!address || !address.lat || !address.lng) {
-    return 40;
+    return 0;
   }
   
   // Simplified calculation - in production, use proper distance calculation
-  const restaurantLocation = { lat: 28.6139, lng: 77.2090 };
+  const restaurantLocation = { lat: 20.6952266, lng: 83.488972 };
   const distance = calculateDistance(
     restaurantLocation.lat,
     restaurantLocation.lng,
@@ -215,7 +215,7 @@ function calculateDeliveryCharge(address) {
     address.lng
   );
   
-  if (distance <= 0.5) return 10;
+  if (distance <= 0.5) return 20;
   if (distance <= 1) return 20;
   if (distance <= 10) return 20 + Math.ceil(distance - 1) * 10;
   return 60;
