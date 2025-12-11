@@ -163,31 +163,48 @@ exports.updateAddress = async (req, res) => {
 };
 
 exports.deleteAddress = async (req, res) => {
-  try {
-    const user = await User.findOne({ firebaseUid: req.user.uid });
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    try {
+        const userId = req.user.uid;
+        const addressId = req.params.addressId;
+
+        const user = await User.findOne({ firebaseUid: userId });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // Filter out the deleted address
+        const originalLength = user.addresses.length;
+
+        user.addresses = user.addresses.filter(addr => addr._id.toString() !== addressId);
+
+        if (user.addresses.length === originalLength) {
+            return res.status(404).json({
+                success: false,
+                message: "Address not found"
+            });
+        }
+
+        await user.save();
+
+        res.json({
+            success: true,
+            message: "Address deleted successfully",
+            addresses: user.addresses
+        });
+
+    } catch (error) {
+        console.error("Delete Address Error:", error);
+        res.status(400).json({
+            success: false,
+            message: "Error deleting address",
+            error: error.message
+        });
     }
-    
-    user.addresses.id(req.params.addressId).remove();
-    await user.save();
-    
-    res.json({
-      success: true,
-      message: 'Address deleted successfully'
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: 'Error deleting address',
-      error: error.message
-    });
-  }
 };
+
 
 exports.getAllAddresses = async (req, res) => {
   try {
