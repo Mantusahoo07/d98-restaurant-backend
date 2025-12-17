@@ -7,25 +7,32 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 
-// List of admin emails (update with your actual admin emails)
-const ADMIN_EMAILS = [
-  'admin@d98.com',
-  'manager@d98.com'
-  // Add more admin emails here
-];
+// Parse admin emails from environment variable
+const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
+  ? process.env.ADMIN_EMAILS.split(',').map(email => email.trim().toLowerCase())
+  : ['admin@d98.com', 'manager@d98.com'];
 
 // Admin middleware - checks if user is admin
 const isAdmin = async (req, res, next) => {
   try {
-    const userEmail = req.user.email;
+    const userEmail = req.user.email?.toLowerCase();
     
-    if (!ADMIN_EMAILS.includes(userEmail.toLowerCase())) {
+    if (!userEmail) {
+      return res.status(401).json({
+        success: false,
+        message: 'User email not found'
+      });
+    }
+    
+    if (!ADMIN_EMAILS.includes(userEmail)) {
+      console.warn(`⚠️ Unauthorized admin access attempt: ${userEmail}`);
       return res.status(403).json({
         success: false,
         message: 'Forbidden: Admin access required'
       });
     }
     
+    console.log(`✅ Admin access granted to: ${userEmail}`);
     next();
   } catch (error) {
     res.status(500).json({
@@ -40,8 +47,68 @@ const isAdmin = async (req, res, next) => {
 router.use(auth);
 router.use(isAdmin);
 
-// ==================== USERS ====================
-// Get all users (admin)
+// ==================== DASHBOARD STATISTICS ====================
+// Get dashboard stats
+router.get('/dashboard', async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const thisWeek = new Date(today);
+    thisWeek.setDate(thisWeek.getDate() - 7);
+    
+    const [
+      totalUsers,
+      totalOrders,
+      totalMenuItems,
+      totalCategories,
+      todayOrders,
+      todayRevenue,
+      recentOrders
+    ] = await Promise.all([
+      User.countDocuments(),
+      Order.countDocuments(),
+      Menu.countDocuments(),
+      Category.countDocuments(),
+      Order.countDocuments({ createdAt: { $gte: today } }),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: today }, status: 'delivered' } },
+        { $group: { _id: null, total: { $sum: '$total' } } }
+      ]),
+      Order.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('orderId customerName total status createdAt')
+    ]);
+    
+    const stats = {
+      overview: {
+        totalUsers,
+        totalOrders,
+        totalMenuItems,
+        totalCategories,
+        todayOrders,
+        todayRevenue: todayRevenue[0]?.total || 0
+      },
+      recentOrders: recentOrders
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching dashboard stats',
+      error: error.message
+    });
+  }
+});
+
+// ==================== USERS MANAGEMENT ====================
+// Get all users
 router.get('/users', async (req, res) => {
   try {
     const users = await User.find()
@@ -53,14 +120,19 @@ router.get('/users', async (req, res) => {
       users.map(async (user) => {
         const orderCount = await Order.countDocuments({ userId: user.firebaseUid });
         return {
-          ...user.toObject(),
-          orderCount
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          createdAt: user.createdAt,
+          orderCount: orderCount
         };
       })
     );
     
     res.json(usersWithStats);
   } catch (error) {
+    console.error('Error fetching users:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching users',
@@ -69,10 +141,11 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// Get user by ID (admin)
+// Get user by ID
 router.get('/users/:id', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id)
+      .select('-addresses -firebaseUid');
     
     if (!user) {
       return res.status(404).json({
@@ -83,6 +156,7 @@ router.get('/users/:id', async (req, res) => {
     
     res.json(user);
   } catch (error) {
+    console.error('Error fetching user:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching user',
@@ -91,42 +165,24 @@ router.get('/users/:id', async (req, res) => {
   }
 });
 
-// ==================== ORDERS ====================
-// Get all orders (admin)
+// ==================== ORDERS MANAGEMENT ====================
+// Get all orders
 router.get('/orders', async (req, res) => {
   try {
-    const { status, startDate, endDate, page = 1, limit = 50 } = req.query;
+    const { status } = req.query;
     
     let filter = {};
-    
     if (status && status !== 'all') {
       filter.status = status;
     }
     
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
-    }
-    
     const orders = await Order.find(filter)
       .populate('items.menuItem')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 });
     
-    const total = await Order.countDocuments(filter);
-    
-    res.json({
-      data: orders,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
-      }
-    });
+    res.json(orders);
   } catch (error) {
+    console.error('Error fetching orders:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching orders',
@@ -135,7 +191,7 @@ router.get('/orders', async (req, res) => {
   }
 });
 
-// Get order by ID (admin)
+// Get order by ID
 router.get('/orders/:id', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
@@ -150,6 +206,7 @@ router.get('/orders/:id', async (req, res) => {
     
     res.json(order);
   } catch (error) {
+    console.error('Error fetching order:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching order',
@@ -158,7 +215,7 @@ router.get('/orders/:id', async (req, res) => {
   }
 });
 
-// Update order status (admin)
+// Update order status
 router.patch('/orders/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
@@ -167,6 +224,14 @@ router.patch('/orders/:id/status', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Status is required'
+      });
+    }
+    
+    const validStatuses = ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status'
       });
     }
     
@@ -194,6 +259,7 @@ router.patch('/orders/:id/status', async (req, res) => {
       message: 'Order status updated successfully'
     });
   } catch (error) {
+    console.error('Error updating order status:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating order status',
@@ -202,57 +268,29 @@ router.patch('/orders/:id/status', async (req, res) => {
   }
 });
 
-// Get order statistics (admin)
-router.get('/orders/stats', async (req, res) => {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    
-    const stats = {
-      totalOrders: await Order.countDocuments(),
-      todayOrders: await Order.countDocuments({ createdAt: { $gte: today } }),
-      yesterdayOrders: await Order.countDocuments({ 
-        createdAt: { $gte: yesterday, $lt: today } 
-      }),
-      thisMonthOrders: await Order.countDocuments({ createdAt: { $gte: thisMonth } }),
-      totalRevenue: await Order.aggregate([
-        { $match: { status: 'delivered' } },
-        { $group: { _id: null, total: { $sum: '$total' } } }
-      ]),
-      byStatus: await Order.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      byPaymentMethod: await Order.aggregate([
-        { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
-      ])
-    };
-    
-    // Convert aggregate results
-    stats.totalRevenue = stats.totalRevenue[0]?.total || 0;
-    
-    res.json(stats);
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching order stats',
-      error: error.message
-    });
-  }
-});
-
-// ==================== CATEGORIES ====================
-// Get all categories (admin - same as public but with auth)
+// ==================== CATEGORIES MANAGEMENT ====================
+// Get all categories (admin version - includes count of menu items)
 router.get('/categories', async (req, res) => {
   try {
     const categories = await Category.find().sort({ name: 1 });
-    res.json(categories);
+    
+    // Count menu items for each category
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        const itemCount = await Menu.countDocuments({ category: category.name });
+        return {
+          _id: category._id,
+          name: category.name,
+          enabled: category.enabled,
+          itemCount: itemCount,
+          createdAt: category.createdAt
+        };
+      })
+    );
+    
+    res.json(categoriesWithCounts);
   } catch (error) {
+    console.error('Error fetching categories:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching categories',
@@ -261,19 +299,19 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Create category (admin)
+// Create category
 router.post('/categories', async (req, res) => {
   try {
     const { name, enabled = true } = req.body;
     
-    if (!name) {
+    if (!name || name.trim() === '') {
       return res.status(400).json({
         success: false,
         message: 'Category name is required'
       });
     }
     
-    // Check if category already exists
+    // Check if category already exists (case insensitive)
     const existingCategory = await Category.findOne({ 
       name: { $regex: new RegExp(`^${name}$`, 'i') } 
     });
@@ -285,7 +323,10 @@ router.post('/categories', async (req, res) => {
       });
     }
     
-    const category = await Category.create({ name, enabled });
+    const category = await Category.create({ 
+      name: name.trim(),
+      enabled: enabled 
+    });
     
     res.status(201).json({
       success: true,
@@ -293,6 +334,7 @@ router.post('/categories', async (req, res) => {
       message: 'Category created successfully'
     });
   } catch (error) {
+    console.error('Error creating category:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating category',
@@ -301,7 +343,7 @@ router.post('/categories', async (req, res) => {
   }
 });
 
-// Update category (admin)
+// Update category
 router.put('/categories/:id', async (req, res) => {
   try {
     const { name, enabled } = req.body;
@@ -315,7 +357,7 @@ router.put('/categories/:id', async (req, res) => {
       });
     }
     
-    if (name) {
+    if (name && name.trim() !== '') {
       // Check if new name already exists (excluding current category)
       const existingCategory = await Category.findOne({
         name: { $regex: new RegExp(`^${name}$`, 'i') },
@@ -329,7 +371,7 @@ router.put('/categories/:id', async (req, res) => {
         });
       }
       
-      category.name = name;
+      category.name = name.trim();
     }
     
     if (typeof enabled !== 'undefined') {
@@ -344,6 +386,7 @@ router.put('/categories/:id', async (req, res) => {
       message: 'Category updated successfully'
     });
   } catch (error) {
+    console.error('Error updating category:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating category',
@@ -352,16 +395,25 @@ router.put('/categories/:id', async (req, res) => {
   }
 });
 
-// Delete category (admin)
+// Delete category
 router.delete('/categories/:id', async (req, res) => {
   try {
+    const category = await Category.findById(req.params.id);
+    
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+    
     // Check if category has menu items
-    const menuItemsCount = await Menu.countDocuments({ categoryId: req.params.id });
+    const menuItemsCount = await Menu.countDocuments({ category: category.name });
     
     if (menuItemsCount > 0) {
       return res.status(400).json({
         success: false,
-        message: `Cannot delete category. It has ${menuItemsCount} menu item(s).`
+        message: `Cannot delete category. It has ${menuItemsCount} menu item(s). Remove or reassign items first.`
       });
     }
     
@@ -372,6 +424,7 @@ router.delete('/categories/:id', async (req, res) => {
       message: 'Category deleted successfully'
     });
   } catch (error) {
+    console.error('Error deleting category:', error);
     res.status(500).json({
       success: false,
       message: 'Error deleting category',
@@ -380,28 +433,16 @@ router.delete('/categories/:id', async (req, res) => {
   }
 });
 
-// ==================== MENU ====================
-// Get all menu items (admin)
+// ==================== MENU MANAGEMENT ====================
+// Get all menu items
 router.get('/menu', async (req, res) => {
   try {
     const menuItems = await Menu.find()
       .sort({ category: 1, name: 1 });
     
-    // Get categories for grouping
-    const categories = await Category.find({ enabled: true });
-    
-    const groupedMenu = {
-      data: menuItems,
-      categories,
-      stats: {
-        total: menuItems.length,
-        available: menuItems.filter(item => item.available).length,
-        unavailable: menuItems.filter(item => !item.available).length
-      }
-    };
-    
-    res.json(groupedMenu);
+    res.json(menuItems);
   } catch (error) {
+    console.error('Error fetching menu:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching menu',
@@ -410,9 +451,20 @@ router.get('/menu', async (req, res) => {
   }
 });
 
-// Create menu item (admin)
+// Create menu item
 router.post('/menu', async (req, res) => {
   try {
+    // Validate required fields
+    const requiredFields = ['name', 'description', 'price', 'category', 'type', 'image'];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} is required`
+        });
+      }
+    }
+    
     const menuItem = await Menu.create(req.body);
     
     res.status(201).json({
@@ -421,6 +473,7 @@ router.post('/menu', async (req, res) => {
       message: 'Menu item created successfully'
     });
   } catch (error) {
+    console.error('Error creating menu item:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating menu item',
@@ -429,7 +482,7 @@ router.post('/menu', async (req, res) => {
   }
 });
 
-// Update menu item (admin)
+// Update menu item
 router.put('/menu/:id', async (req, res) => {
   try {
     const menuItem = await Menu.findByIdAndUpdate(
@@ -451,6 +504,7 @@ router.put('/menu/:id', async (req, res) => {
       message: 'Menu item updated successfully'
     });
   } catch (error) {
+    console.error('Error updating menu item:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating menu item',
@@ -459,9 +513,18 @@ router.put('/menu/:id', async (req, res) => {
   }
 });
 
-// Delete menu item (admin)
+// Delete menu item
 router.delete('/menu/:id', async (req, res) => {
   try {
+    const menuItem = await Menu.findById(req.params.id);
+    
+    if (!menuItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Menu item not found'
+      });
+    }
+    
     await Menu.findByIdAndDelete(req.params.id);
     
     res.json({
@@ -469,6 +532,7 @@ router.delete('/menu/:id', async (req, res) => {
       message: 'Menu item deleted successfully'
     });
   } catch (error) {
+    console.error('Error deleting menu item:', error);
     res.status(500).json({
       success: false,
       message: 'Error deleting menu item',
@@ -477,7 +541,7 @@ router.delete('/menu/:id', async (req, res) => {
   }
 });
 
-// Toggle menu item availability (admin)
+// Toggle menu item availability
 router.patch('/menu/:id/toggle-availability', async (req, res) => {
   try {
     const menuItem = await Menu.findById(req.params.id);
@@ -498,110 +562,10 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
       message: `Menu item ${menuItem.available ? 'enabled' : 'disabled'} successfully`
     });
   } catch (error) {
+    console.error('Error toggling menu item:', error);
     res.status(500).json({
       success: false,
-      message: 'Error toggling menu item availability',
-      error: error.message
-    });
-  }
-});
-
-// ==================== DASHBOARD STATS ====================
-// Get dashboard statistics
-router.get('/dashboard', async (req, res) => {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const thisWeek = new Date(today);
-    thisWeek.setDate(thisWeek.getDate() - 7);
-    
-    const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    
-    const [
-      totalUsers,
-      totalOrders,
-      totalMenuItems,
-      totalCategories,
-      todayOrders,
-      todayRevenue,
-      recentOrders,
-      orderStatusCounts,
-      topMenuItems
-    ] = await Promise.all([
-      User.countDocuments(),
-      Order.countDocuments(),
-      Menu.countDocuments(),
-      Category.countDocuments(),
-      Order.countDocuments({ createdAt: { $gte: today } }),
-      Order.aggregate([
-        { $match: { createdAt: { $gte: today }, status: 'delivered' } },
-        { $group: { _id: null, total: { $sum: '$total' } } }
-      ]),
-      Order.find()
-        .populate('items.menuItem')
-        .sort({ createdAt: -1 })
-        .limit(10),
-      Order.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      Order.aggregate([
-        { $unwind: '$items' },
-        { $group: { 
-          _id: '$items.menuItem', 
-          totalQuantity: { $sum: '$items.quantity' },
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
-        }},
-        { $sort: { totalQuantity: -1 } },
-        { $limit: 5 },
-        { $lookup: {
-          from: 'menus',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'menuItem'
-        }},
-        { $unwind: '$menuItem' }
-      ])
-    ]);
-    
-    const stats = {
-      overview: {
-        totalUsers,
-        totalOrders,
-        totalMenuItems,
-        totalCategories,
-        todayOrders,
-        todayRevenue: todayRevenue[0]?.total || 0
-      },
-      orderStatus: orderStatusCounts.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
-      }, {}),
-      recentOrders: recentOrders.map(order => ({
-        _id: order._id,
-        orderId: order.orderId,
-        customerName: order.customerName,
-        total: order.total,
-        status: order.status,
-        createdAt: order.createdAt,
-        itemCount: order.items.length
-      })),
-      topMenuItems: topMenuItems.map(item => ({
-        name: item.menuItem.name,
-        category: item.menuItem.category,
-        totalQuantity: item.totalQuantity,
-        totalRevenue: item.totalRevenue
-      }))
-    };
-    
-    res.json(stats);
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching dashboard stats',
+      message: 'Error toggling menu item',
       error: error.message
     });
   }
