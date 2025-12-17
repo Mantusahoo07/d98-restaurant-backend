@@ -66,10 +66,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
-// In your server.js/index.js
-const adminUsersRouter = require('./routes/admin-users'); // You'll create this
-const adminOrdersRouter = require('./routes/admin-orders'); // You'll create this
-
-// Admin routes
-app.use('/api/admin/users', adminUsersRouter);
-app.use('/api/admin/orders', adminOrdersRouter);
