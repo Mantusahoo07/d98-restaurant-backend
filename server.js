@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+
 require('dotenv').config();
 
 const app = express();
@@ -37,6 +38,12 @@ app.get('/', (req, res) => {
     }
   });
 });
+
+// In your main server file
+const usersRouter = require('./routes/users');
+
+// Mount routes
+app.use('/api/users', usersRouter);
 
 // Routes
 app.use('/api/menu', require('./routes/menu'));
