@@ -11,5 +11,6 @@ router.get('/:id', orderController.getOrderById);
 router.put('/:id/status', orderController.updateOrderStatus);
 router.post('/:id/verify-otp', orderController.verifyOtp);
 router.post('/razorpay/create-order', orderController.createRazorpayOrder);
+router.post('/:id/verify-payment', orderController.verifyAndUpdatePayment);
 
 module.exports = router;
