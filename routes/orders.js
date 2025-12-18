@@ -3,31 +3,31 @@ const router = express.Router();
 const orderController = require('../controllers/orderController');
 const auth = require('../middleware/auth');
 
+// Apply auth middleware to all routes
 router.use(auth);
 
-router.post('/', orderController.createOrder);
-router.get('/', auth, async (req, res) => {
+// Debug middleware for orders
+router.use((req, res, next) => {
+    console.log('📦 Orders route accessed by user:', req.user.uid);
+    next();
+});
+
+// Get user orders
+router.get('/', async (req, res) => {
     try {
-        const { status, activeOnly } = req.query;
+        console.log('📦 Fetching orders for user:', req.user.uid);
         
-        console.log('📦 Fetching orders with query:', { status, activeOnly });
+        const { status } = req.query;
         
         let filter = { userId: req.user.uid };
         
-        // Handle status filter
         if (status && status !== 'all') {
             filter.status = status;
         }
         
-        // Handle activeOnly filter
-        if (activeOnly === 'true') {
-            filter.status = { 
-                $in: ['pending', 'confirmed', 'preparing', 'out_for_delivery'] 
-            };
-        }
+        console.log('🔍 Filter:', filter);
         
-        console.log('🔍 MongoDB filter:', JSON.stringify(filter));
-        
+        const Order = require('../models/Order');
         const orders = await Order.find(filter)
             .populate('items.menuItem')
             .sort({ createdAt: -1 });
@@ -45,15 +45,53 @@ router.get('/', auth, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error fetching orders',
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            error: error.message
         });
     }
 });
-router.get('/:id', orderController.getOrderById);
+
+// Create new order
+router.post('/', orderController.createOrder);
+
+// Get order by ID
+router.get('/:id', async (req, res) => {
+    try {
+        const Order = require('../models/Order');
+        const order = await Order.findOne({
+            _id: req.params.id,
+            userId: req.user.uid
+        }).populate('items.menuItem');
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: order
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching order',
+            error: error.message
+        });
+    }
+});
+
+// Update order status (Admin only)
 router.put('/:id/status', orderController.updateOrderStatus);
+
+// Verify OTP
 router.post('/:id/verify-otp', orderController.verifyOtp);
+
+// Create Razorpay order
 router.post('/razorpay/create-order', orderController.createRazorpayOrder);
+
+// Verify payment
 router.post('/:id/verify-payment', orderController.verifyAndUpdatePayment);
 
 module.exports = router;
