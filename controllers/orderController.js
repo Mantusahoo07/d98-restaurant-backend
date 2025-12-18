@@ -345,3 +345,82 @@ exports.updatePayment = async (req, res) => {
     });
   }
 };
+
+// Verify and update payment status
+exports.verifyAndUpdatePayment = async (req, res) => {
+  try {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
+    
+    console.log('🔍 Verifying payment for order:', req.params.id);
+    console.log('Payment ID:', razorpay_payment_id);
+    console.log('Order ID:', razorpay_order_id);
+
+    // Validate required fields
+    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing payment verification parameters'
+      });
+    }
+
+    // Find the order
+    const order = await Order.findById(req.params.id);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    // Verify the user owns this order
+    if (order.userId !== req.user.uid) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update this order'
+      });
+    }
+
+    // Verify the payment signature
+    const crypto = require('crypto');
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RZP_KEY_SECRET)
+      .update(body)
+      .digest('hex');
+    
+    const isSignatureValid = expectedSignature === razorpay_signature;
+    
+    if (!isSignatureValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment signature'
+      });
+    }
+
+    // Update the order with payment details
+    order.paymentId = razorpay_payment_id;
+    order.razorpayOrderId = razorpay_order_id;
+    order.razorpaySignature = razorpay_signature;
+    order.paymentStatus = 'paid'; // CRITICAL: Update payment status
+    order.status = 'confirmed'; // Also update order status
+    
+    await order.save();
+
+    console.log('✅ Payment verified and order updated successfully');
+    
+    res.json({
+      success: true,
+      message: 'Payment verified and order confirmed',
+      data: order
+    });
+
+  } catch (error) {
+    console.error('❌ Error verifying payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying payment',
+      error: error.message
+    });
+  }
+};
