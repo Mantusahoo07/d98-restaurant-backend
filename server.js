@@ -1,76 +1,90 @@
-const express = require('express');
+// models/DeliveryAgent.js - CREATE THIS NEW FILE
 const mongoose = require('mongoose');
-const cors = require('cors');
 
-require('dotenv').config();
-
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
-
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/d98-restaurant', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-mongoose.connection.on('connected', () => {
-  console.log('Connected to MongoDB');
-});
-
-const razorpayRoutes = require('./routes/razorpay');
-
-// Root Route (Fix for "Cannot GET /")
-app.get('/', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'D98 Restaurant Backend API is running 🚀',
-    endpoints: {
-      health: '/api/health',
-      menu: '/api/menu',
-      orders: '/api/orders',
-      users: '/api/users',
-      auth: '/api/auth',
-      razorpay: '/api/razorpay/create-order'
+const deliveryAgentSchema = new mongoose.Schema({
+  firebaseUid: { 
+    type: String, 
+    required: true, 
+    unique: true 
+  },
+  name: { 
+    type: String, 
+    required: true 
+  },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true 
+  },
+  phone: { 
+    type: String, 
+    required: true 
+  },
+  status: { 
+    type: String, 
+    enum: ['online', 'offline', 'busy', 'on_delivery'], 
+    default: 'offline' 
+  },
+  currentLocation: {
+    lat: { type: Number, default: 20.6952266 },
+    lng: { type: Number, default: 83.488972 }
+  },
+  vehicleInfo: {
+    type: String,
+    default: 'Bike'
+  },
+  isAvailable: { 
+    type: Boolean, 
+    default: true 
+  },
+  
+  // Stats
+  totalDeliveries: { 
+    type: Number, 
+    default: 0 
+  },
+  totalEarnings: { 
+    type: Number, 
+    default: 0 
+  },
+  rating: { 
+    type: Number, 
+    default: 5.0,
+    min: 0,
+    max: 5 
+  },
+  
+  // Today's stats
+  todayStats: {
+    deliveries: { 
+      type: Number, 
+      default: 0 
+    },
+    earnings: { 
+      type: Number, 
+      default: 0 
     }
-  });
+  },
+  
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  },
+  updatedAt: { 
+    type: Date, 
+    default: Date.now 
+  }
 });
 
-// In your main server file
-const usersRouter = require('./routes/users');
-
-// Mount routes
-app.use('/api/users', usersRouter);
-
-// Routes
-app.use('/api/menu', require('./routes/menu'));
-app.use('/api/orders', require('./routes/orders'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/categories', require('./routes/categories'));
-app.use('/api/razorpay', razorpayRoutes);
-app.use('/api/razorpay', require('./routes/razorpay'));
-app.use('/api/admin', require('./routes/admin'));
-
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'D98 Restaurant API is running' 
-  });
-});
-app.get('/api/config/razorpay-key', (req, res) => {
-  res.json({
-    success: true,
-    key: process.env.RZP_KEY_ID
-  });
+// Update the updatedAt field on save
+deliveryAgentSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+module.exports = mongoose.model('DeliveryAgent', deliveryAgentSchema);
