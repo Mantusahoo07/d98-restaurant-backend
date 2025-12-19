@@ -1,62 +1,58 @@
-// routes/menu.js (PUBLIC VERSION)
 const express = require('express');
 const router = express.Router();
 const Menu = require('../models/Menu');
-const Category = require('../models/Category');
 
-// Get all menu items (PUBLIC - no auth required)
+// Get all menu items
 router.get('/', async (req, res) => {
   try {
-    const { category, available } = req.query;
-    
-    let filter = {};
-    
-    // Only show enabled categories' items
-    if (category && category !== 'all') {
-      filter.category = category;
-    }
-    
-    // Only show available items for public
-    filter.available = true;
-    
-    const items = await Menu.find(filter).sort({ name: 1 });
+    const items = await Menu.find().sort({ createdAt: -1 });
     res.json(items);
   } catch (err) {
-    console.error('Error fetching menu:', err);
-    res.status(500).json({ error: 'Error fetching menu items' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Get menu item by ID (PUBLIC)
-router.get('/:id', async (req, res) => {
+// Add menu item
+router.post('/', async (req, res) => {
+  try {
+    const item = new Menu(req.body);
+    await item.save();
+    res.json({ success: true, item });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Update menu item
+router.put('/:id', async (req, res) => {
+  try {
+    const item = await Menu.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json({ success: true, item });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Toggle availability (PATCH)
+router.patch('/:id/toggle-availability', async (req, res) => {
   try {
     const item = await Menu.findById(req.params.id);
-    
-    if (!item) {
-      return res.status(404).json({ error: 'Item not found' });
-    }
-    
-    // Don't show unavailable items to public
-    if (!item.available) {
-      return res.status(404).json({ error: 'Item not found' });
-    }
-    
-    res.json(item);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    item.available = !item.available;
+    await item.save();
+    res.json({ success: true, item });
   } catch (err) {
-    console.error('Error fetching menu item:', err);
-    res.status(500).json({ error: 'Error fetching menu item' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Get menu categories (PUBLIC)
-router.get('/categories/list', async (req, res) => {
+// Delete menu item
+router.delete('/:id', async (req, res) => {
   try {
-    // Get enabled categories
-    const categories = await Category.find({ enabled: true }).sort({ name: 1 });
-    res.json(categories);
+    await Menu.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Item deleted' });
   } catch (err) {
-    console.error('Error fetching categories:', err);
-    res.status(500).json({ error: 'Error fetching categories' });
+    res.status(400).json({ error: err.message });
   }
 });
 

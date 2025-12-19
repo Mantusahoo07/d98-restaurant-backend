@@ -50,45 +50,4 @@ const auth = async (req, res, next) => {
   }
 };
 
-// In your auth.js or new route
-router.post('/delivery/register', async (req, res) => {
-  try {
-    const { name, phone, vehicleType, vehicleNumber } = req.body;
-    
-    // Check if already registered
-    const existing = await DeliveryPartner.findOne({ 
-      $or: [{ firebaseUid: req.user.uid }, { phone }] 
-    });
-    
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'Delivery partner already registered'
-      });
-    }
-    
-    // Create new delivery partner
-    const partner = await DeliveryPartner.create({
-      firebaseUid: req.user.uid,
-      name,
-      phone,
-      email: req.user.email,
-      vehicleType,
-      vehicleNumber
-    });
-    
-    res.status(201).json({
-      success: true,
-      data: partner,
-      message: 'Registration successful'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Registration failed',
-      error: error.message
-    });
-  }
-});
-
 module.exports = auth;
