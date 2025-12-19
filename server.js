@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const deliveryRouter = require('./routes/delivery');
+
 
 require('dotenv').config();
 
@@ -18,12 +20,20 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/d98-resta
 });
 
 mongoose.connection.on('connected', () => {
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB');
 });
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
+
+// Import models
+require('./models/Order'); // Make sure Order model exists
+const DeliveryAgent = require('./models/DeliveryPartner');
 
 const razorpayRoutes = require('./routes/razorpay');
 
-// Root Route (Fix for "Cannot GET /")
+// Root Route
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -34,7 +44,8 @@ app.get('/', (req, res) => {
       orders: '/api/orders',
       users: '/api/users',
       auth: '/api/auth',
-      razorpay: '/api/razorpay/create-order'
+      razorpay: '/api/razorpay/create-order',
+      delivery: '/api/delivery/profile'
     }
   });
 });
@@ -54,15 +65,20 @@ app.use('/api/categories', require('./routes/categories'));
 app.use('/api/razorpay', razorpayRoutes);
 app.use('/api/razorpay', require('./routes/razorpay'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/delivery', deliveryRouter);
 
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
-    message: 'D98 Restaurant API is running' 
+    message: 'D98 Restaurant API is running',
+    timestamp: new Date().toISOString(),
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
+
+// Razorpay config endpoint
 app.get('/api/config/razorpay-key', (req, res) => {
   res.json({
     success: true,
@@ -70,7 +86,34 @@ app.get('/api/config/razorpay-key', (req, res) => {
   });
 });
 
+// Delivery health check
+app.get('/api/delivery/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Delivery API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Endpoint not found'
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server is running on port ${PORT}`);
 });
