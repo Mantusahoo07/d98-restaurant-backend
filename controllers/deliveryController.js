@@ -1,6 +1,5 @@
 const DeliveryPartner = require('../models/DeliveryPartner');
 const Order = require('../models/Order');
-const User = require('../models/User');
 
 // Get delivery partner profile
 exports.getProfile = async (req, res) => {
@@ -8,9 +7,19 @@ exports.getProfile = async (req, res) => {
     const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery partner not found'
+      // If partner doesn't exist, create a basic profile
+      const newPartner = await DeliveryPartner.create({
+        firebaseUid: req.user.uid,
+        name: req.user.name || 'Delivery Partner',
+        phone: req.user.phone || '',
+        email: req.user.email || '',
+        vehicleType: 'bike'
+      });
+      
+      return res.json({
+        success: true,
+        data: newPartner,
+        message: 'Profile created automatically'
       });
     }
     
@@ -19,6 +28,7 @@ exports.getProfile = async (req, res) => {
       data: partner
     });
   } catch (error) {
+    console.error('Error fetching delivery profile:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching profile',
@@ -48,7 +58,7 @@ exports.updateProfile = async (req, res) => {
         firebaseUid: req.user.uid,
         name: name || req.user.name || 'Delivery Partner',
         phone: phone || req.user.phone || '',
-        email: req.user.email,
+        email: req.user.email || '',
         vehicleType: vehicleType || 'bike',
         vehicleNumber: vehicleNumber || ''
       });
@@ -74,16 +84,21 @@ exports.toggleOnlineStatus = async (req, res) => {
   try {
     const { isOnline, location } = req.body;
     
-    const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
+    let partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery partner not found'
+      // Create partner if doesn't exist
+      partner = await DeliveryPartner.create({
+        firebaseUid: req.user.uid,
+        name: req.user.name || 'Delivery Partner',
+        phone: req.user.phone || '',
+        email: req.user.email || '',
+        vehicleType: 'bike',
+        isOnline: isOnline !== undefined ? isOnline : true
       });
+    } else {
+      partner.isOnline = isOnline !== undefined ? isOnline : !partner.isOnline;
     }
-    
-    partner.isOnline = isOnline !== undefined ? isOnline : !partner.isOnline;
     
     if (location) {
       partner.currentLocation = {
@@ -101,6 +116,7 @@ exports.toggleOnlineStatus = async (req, res) => {
       message: `You are now ${partner.isOnline ? 'online' : 'offline'}`
     });
   } catch (error) {
+    console.error('Error updating status:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating status',
@@ -115,7 +131,8 @@ exports.getAvailableOrders = async (req, res) => {
     // Get orders that are ready for delivery
     const orders = await Order.find({
       status: { $in: ['confirmed', 'preparing'] },
-      paymentStatus: 'paid'
+      paymentStatus: 'paid',
+      deliveryStatus: 'pending_assignment'
     })
     .populate('items.menuItem')
     .sort({ createdAt: 1 })
@@ -162,27 +179,35 @@ exports.acceptOrder = async (req, res) => {
     }
     
     // Check if order is available for delivery
-    if (!['confirmed', 'preparing'].includes(order.status)) {
+    if (order.deliveryStatus !== 'pending_assignment') {
       return res.status(400).json({
         success: false,
         message: 'Order is not available for delivery'
       });
     }
     
+    // Check if partner already has an active order
+    if (partner.currentOrder) {
+      const currentActiveOrder = await Order.findById(partner.currentOrder);
+      if (currentActiveOrder && !['delivered', 'cancelled'].includes(currentActiveOrder.deliveryStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have an active delivery. Complete it first.'
+        });
+      }
+    }
+    
     // Update order with delivery partner info
-    order.status = 'out_for_delivery';
-    order.deliveryPartner = {
-      firebaseUid: req.user.uid,
-      name: partner.name,
-      phone: partner.phone
-    };
+    order.deliveryAgentId = partner._id;
+    order.deliveryAgentName = partner.name;
+    order.deliveryAgentPhone = partner.phone;
+    order.deliveryStatus = 'assigned';
     order.deliveryAssignedAt = new Date();
     
     await order.save();
     
     // Update partner stats
-    partner.currentOrder = orderId;
-    
+    partner.currentOrder = order._id;
     await partner.save();
     
     res.json({
@@ -203,9 +228,20 @@ exports.acceptOrder = async (req, res) => {
 // Get delivery partner's active orders
 exports.getActiveOrders = async (req, res) => {
   try {
+    const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
+    
+    if (!partner) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        message: 'No delivery partner profile found'
+      });
+    }
+    
     const orders = await Order.find({
-      'deliveryPartner.firebaseUid': req.user.uid,
-      status: 'out_for_delivery'
+      deliveryAgentId: partner._id,
+      deliveryStatus: { $nin: ['delivered', 'cancelled'] }
     })
     .populate('items.menuItem')
     .sort({ deliveryAssignedAt: -1 });
@@ -228,24 +264,26 @@ exports.getActiveOrders = async (req, res) => {
 // Get delivery history
 exports.getDeliveryHistory = async (req, res) => {
   try {
-    const { startDate, endDate, limit = 20 } = req.query;
+    const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
-    let filter = {
-      'deliveryPartner.firebaseUid': req.user.uid,
-      status: 'delivered'
-    };
-    
-    // Add date filter if provided
-    if (startDate || endDate) {
-      filter.deliveredAt = {};
-      if (startDate) filter.deliveredAt.$gte = new Date(startDate);
-      if (endDate) filter.deliveredAt.$lte = new Date(endDate);
+    if (!partner) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        message: 'No delivery partner profile found'
+      });
     }
     
-    const orders = await Order.find(filter)
-      .populate('items.menuItem')
-      .sort({ deliveredAt: -1 })
-      .limit(parseInt(limit));
+    const { limit = 20 } = req.query;
+    
+    const orders = await Order.find({
+      deliveryAgentId: partner._id,
+      deliveryStatus: 'delivered'
+    })
+    .populate('items.menuItem')
+    .sort({ deliveredAt: -1 })
+    .limit(parseInt(limit));
     
     res.json({
       success: true,
@@ -274,22 +312,30 @@ exports.updateLocation = async (req, res) => {
       });
     }
     
-    const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
+    let partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery partner not found'
+      // Create partner if doesn't exist
+      partner = await DeliveryPartner.create({
+        firebaseUid: req.user.uid,
+        name: req.user.name || 'Delivery Partner',
+        phone: req.user.phone || '',
+        email: req.user.email || '',
+        vehicleType: 'bike',
+        currentLocation: {
+          lat,
+          lng,
+          updatedAt: new Date()
+        }
       });
+    } else {
+      partner.currentLocation = {
+        lat,
+        lng,
+        updatedAt: new Date()
+      };
+      await partner.save();
     }
-    
-    partner.currentLocation = {
-      lat,
-      lng,
-      updatedAt: new Date()
-    };
-    
-    await partner.save();
     
     res.json({
       success: true,
@@ -311,9 +357,17 @@ exports.getEarnings = async (req, res) => {
     const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
     if (!partner) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery partner not found'
+      return res.json({
+        success: true,
+        data: {
+          totalEarnings: 0,
+          todayEarnings: 0,
+          weekEarnings: 0,
+          monthEarnings: 0,
+          totalDeliveries: 0,
+          rating: 5,
+          earningsHistory: []
+        }
       });
     }
     
@@ -324,8 +378,8 @@ exports.getEarnings = async (req, res) => {
     const todayEarnings = await Order.aggregate([
       {
         $match: {
-          'deliveryPartner.firebaseUid': req.user.uid,
-          status: 'delivered',
+          deliveryAgentId: partner._id,
+          deliveryStatus: 'delivered',
           deliveredAt: { $gte: today }
         }
       },
@@ -345,8 +399,8 @@ exports.getEarnings = async (req, res) => {
     const weekEarnings = await Order.aggregate([
       {
         $match: {
-          'deliveryPartner.firebaseUid': req.user.uid,
-          status: 'delivered',
+          deliveryAgentId: partner._id,
+          deliveryStatus: 'delivered',
           deliveredAt: { $gte: weekStart }
         }
       },
@@ -366,8 +420,8 @@ exports.getEarnings = async (req, res) => {
     const monthEarnings = await Order.aggregate([
       {
         $match: {
-          'deliveryPartner.firebaseUid': req.user.uid,
-          status: 'delivered',
+          deliveryAgentId: partner._id,
+          deliveryStatus: 'delivered',
           deliveredAt: { $gte: monthStart }
         }
       },
@@ -406,22 +460,37 @@ exports.updateBankDetails = async (req, res) => {
   try {
     const { accountNumber, ifscCode, accountHolder } = req.body;
     
-    const partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
-    
-    if (!partner) {
-      return res.status(404).json({
+    if (!accountNumber || !ifscCode || !accountHolder) {
+      return res.status(400).json({
         success: false,
-        message: 'Delivery partner not found'
+        message: 'All bank details are required'
       });
     }
     
-    partner.bankDetails = {
-      accountNumber,
-      ifscCode,
-      accountHolder
-    };
+    let partner = await DeliveryPartner.findOne({ firebaseUid: req.user.uid });
     
-    await partner.save();
+    if (!partner) {
+      // Create partner if doesn't exist
+      partner = await DeliveryPartner.create({
+        firebaseUid: req.user.uid,
+        name: req.user.name || 'Delivery Partner',
+        phone: req.user.phone || '',
+        email: req.user.email || '',
+        vehicleType: 'bike',
+        bankDetails: {
+          accountNumber,
+          ifscCode,
+          accountHolder
+        }
+      });
+    } else {
+      partner.bankDetails = {
+        accountNumber,
+        ifscCode,
+        accountHolder
+      };
+      await partner.save();
+    }
     
     res.json({
       success: true,
@@ -432,6 +501,45 @@ exports.updateBankDetails = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error updating bank details',
+      error: error.message
+    });
+  }
+};
+
+// Assign delivery agent to order (for admin use)
+exports.assignDeliveryAgent = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { agentId, agentName, agentPhone } = req.body;
+    
+    const order = await Order.findById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    
+    // Assign agent using the method from Order model
+    order.deliveryAgentId = agentId;
+    order.deliveryAgentName = agentName;
+    order.deliveryAgentPhone = agentPhone;
+    order.deliveryStatus = 'assigned';
+    order.deliveryAssignedAt = new Date();
+    
+    await order.save();
+    
+    res.json({
+      success: true,
+      data: order,
+      message: 'Delivery agent assigned successfully'
+    });
+  } catch (error) {
+    console.error('Error assigning delivery agent:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error assigning delivery agent',
       error: error.message
     });
   }
