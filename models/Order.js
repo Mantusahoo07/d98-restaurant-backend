@@ -80,11 +80,6 @@ const orderSchema = new mongoose.Schema({
     enum: ['online', 'cod'],
     default: 'online'
   },
-  deliveryAgent: {
-  type: String, // Firebase UID of agent
-  default: null
-},
-
   paymentId: String,
   razorpayOrderId: String,
   razorpaySignature: String,
