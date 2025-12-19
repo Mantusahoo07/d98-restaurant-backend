@@ -162,46 +162,43 @@ exports.updateOrderStatus = async (req, res) => {
 exports.verifyOtp = async (req, res) => {
   try {
     const { otp } = req.body;
-
+    
     const order = await Order.findOne({
       _id: req.params.id,
-      deliveryAgent: req.user.uid   // 👈 AGENT UID
+      userId: req.user.uid
     });
-
+    
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found"
+        message: 'Order not found'
       });
     }
-
+    
     if (order.deliveryOtp !== otp) {
       return res.status(400).json({
         success: false,
-        message: "Invalid OTP"
+        message: 'Invalid OTP'
       });
     }
-
-    order.status = "delivered";
+    
     order.otpVerified = true;
+    order.status = 'delivered';
     order.deliveredAt = new Date();
-
     await order.save();
-
+    
     res.json({
       success: true,
-      message: "Order delivered successfully"
+      message: 'OTP verified successfully'
     });
-
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: "OTP verification failed",
+      message: 'Error verifying OTP',
       error: error.message
     });
   }
 };
-
 
 // Helper function to calculate delivery charge
 function calculateDeliveryCharge(address) {
@@ -424,28 +421,6 @@ exports.verifyAndUpdatePayment = async (req, res) => {
       success: false,
       message: 'Error verifying payment',
       error: error.message
-    });
-  }
-};
-
-// 🔹 Get assigned orders (Delivery Agent)
-exports.getAssignedOrdersForAgent = async (req, res) => {
-  try {
-    const agentId = req.user.uid;
-
-    const orders = await Order.find({
-      deliveryAgent: agentId,
-      status: { $in: ["assigned", "out_for_delivery"] }
-    }).sort({ createdAt: -1 });
-
-    res.json({
-      success: true,
-      data: orders
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Error fetching assigned orders"
     });
   }
 };
