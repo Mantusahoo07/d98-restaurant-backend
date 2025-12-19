@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
 const auth = require('../middleware/auth');
+const checkRestaurantStatus = require('../middleware/restaurantStatus');
 
 // Apply auth middleware to all routes
 router.use(auth);
@@ -82,6 +83,8 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+router.post('/', checkRestaurantStatus, orderController.createOrder);
+
 // Update order status (Admin only)
 router.put('/:id/status', orderController.updateOrderStatus);
 
@@ -93,5 +96,6 @@ router.post('/razorpay/create-order', orderController.createRazorpayOrder);
 
 // Verify payment
 router.post('/:id/verify-payment', orderController.verifyAndUpdatePayment);
+
 
 module.exports = router;
