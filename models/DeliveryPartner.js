@@ -12,8 +12,7 @@ const deliveryPartnerSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   email: String,
   vehicleType: {
@@ -46,11 +45,15 @@ const deliveryPartnerSchema = new mongoose.Schema({
     default: 0
   },
   earnings: [{
-    orderId: String,
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
     amount: Number,
     date: Date,
     orderTotal: Number
   }],
+  currentOrder: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order'
+  },
   documents: {
     license: String,
     rc: String,
