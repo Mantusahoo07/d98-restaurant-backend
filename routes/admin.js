@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
+const DeliveryAgent = require('../models/DeliveryAgent');
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -218,7 +219,7 @@ router.get('/orders/:id', async (req, res) => {
 // Update order status
 router.patch('/orders/:id/status', async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, notes, deliveryAgentId } = req.body;
     
     if (!status) {
       return res.status(400).json({
@@ -246,16 +247,54 @@ router.patch('/orders/:id/status', async (req, res) => {
     
     order.status = status;
     
-    // If delivered, set deliveredAt
+    // If assigned to delivery agent
+    if (deliveryAgentId) {
+      const agent = await DeliveryAgent.findById(deliveryAgentId);
+      if (agent) {
+        order.deliveryAgent = deliveryAgentId;
+        order.assignedAt = new Date();
+        
+        // Update agent status if going out for delivery
+        if (status === 'out_for_delivery') {
+          agent.status = 'busy';
+          await agent.save();
+        }
+      }
+    }
+    
+    // If delivered, set deliveredAt and increment agent's orders
     if (status === 'delivered') {
       order.deliveredAt = new Date();
+      
+      // Increment agent's orders delivered count
+      if (order.deliveryAgent) {
+        await DeliveryAgent.findByIdAndUpdate(order.deliveryAgent, {
+          $inc: { ordersDelivered: 1 },
+          status: 'available' // Set agent back to available
+        });
+      }
+    }
+    
+    // If cancelled, free up the agent if assigned
+    if (status === 'cancelled' && order.deliveryAgent) {
+      await DeliveryAgent.findByIdAndUpdate(order.deliveryAgent, {
+        status: 'available'
+      });
+    }
+    
+    if (notes) {
+      order.notes = notes;
     }
     
     await order.save();
     
+    const updatedOrder = await Order.findById(order._id)
+      .populate('deliveryAgent', 'name phone')
+      .populate('items.menuItem');
+    
     res.json({
       success: true,
-      data: order,
+      data: updatedOrder,
       message: 'Order status updated successfully'
     });
   } catch (error) {
@@ -433,6 +472,239 @@ router.delete('/categories/:id', async (req, res) => {
   }
 });
 
+
+// ==================== DELIVERY AGENTS MANAGEMENT ====================
+// Add this require at the top of your admin.js file with other requires
+const DeliveryAgent = require('../models/DeliveryAgent');
+
+// Get all delivery agents
+router.get('/delivery-agents', async (req, res) => {
+  try {
+    console.log('📦 Fetching delivery agents...');
+    
+    const agents = await DeliveryAgent.find({ isActive: true })
+      .sort({ createdAt: -1 });
+    
+    console.log(`✅ Found ${agents.length} delivery agents`);
+    
+    res.json({
+      success: true,
+      data: agents,
+      count: agents.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching delivery agents:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching delivery agents',
+      error: error.message
+    });
+  }
+});
+
+// Create delivery agent
+router.post('/delivery-agents', async (req, res) => {
+  try {
+    console.log('👤 Creating delivery agent:', req.body.email);
+    
+    const { name, email, phone, vehicle, status, password } = req.body;
+    
+    // Validate required fields
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, phone and password are required'
+      });
+    }
+    
+    // Check if agent already exists
+    const existingAgent = await DeliveryAgent.findOne({ email });
+    if (existingAgent) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery agent with this email already exists'
+      });
+    }
+    
+    // Create agent
+    const agentData = {
+      name,
+      email,
+      phone,
+      password,
+      vehicle: vehicle || '',
+      status: status || 'available',
+      isActive: true
+    };
+    
+    const agent = await DeliveryAgent.create(agentData);
+    
+    console.log('✅ Delivery agent created:', agent.email);
+    
+    res.status(201).json({
+      success: true,
+      data: agent,
+      message: 'Delivery agent created successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error creating delivery agent:', error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery agent with this email already exists',
+        error: 'DUPLICATE_EMAIL'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error creating delivery agent',
+      error: error.message
+    });
+  }
+});
+
+// Update delivery agent
+router.put('/delivery-agents/:id', async (req, res) => {
+  try {
+    console.log('✏️ Updating delivery agent:', req.params.id);
+    
+    const { name, phone, vehicle, status, password } = req.body;
+    
+    const agent = await DeliveryAgent.findById(req.params.id);
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery agent not found'
+      });
+    }
+    
+    // Update fields if provided
+    if (name) agent.name = name;
+    if (phone) agent.phone = phone;
+    if (vehicle !== undefined) agent.vehicle = vehicle;
+    if (status) agent.status = status;
+    if (password) agent.password = password; // Will be hashed by pre-save hook
+    
+    await agent.save();
+    
+    console.log('✅ Delivery agent updated:', agent.email);
+    
+    res.json({
+      success: true,
+      data: agent,
+      message: 'Delivery agent updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error updating delivery agent:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating delivery agent',
+      error: error.message
+    });
+  }
+});
+
+// Delete delivery agent
+router.delete('/delivery-agents/:id', async (req, res) => {
+  try {
+    console.log('🗑️ Deleting delivery agent:', req.params.id);
+    
+    const agent = await DeliveryAgent.findById(req.params.id);
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery agent not found'
+      });
+    }
+    
+    // Soft delete by setting isActive to false
+    agent.isActive = false;
+    await agent.save();
+    
+    console.log('✅ Delivery agent soft deleted:', agent.email);
+    
+    res.json({
+      success: true,
+      message: 'Delivery agent deleted successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error deleting delivery agent:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting delivery agent',
+      error: error.message
+    });
+  }
+});
+
+// Toggle agent status
+router.patch('/delivery-agents/:id/toggle-status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    
+    if (!status || !['available', 'busy', 'offline'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid status is required: available, busy, or offline'
+      });
+    }
+    
+    const agent = await DeliveryAgent.findById(req.params.id);
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery agent not found'
+      });
+    }
+    
+    agent.status = status;
+    await agent.save();
+    
+    res.json({
+      success: true,
+      data: agent,
+      message: 'Agent status updated successfully'
+    });
+  } catch (error) {
+    console.error('Error toggling agent status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error toggling agent status',
+      error: error.message
+    });
+  }
+});
+
+// Get available agents
+router.get('/delivery-agents/available', async (req, res) => {
+  try {
+    const agents = await DeliveryAgent.find({
+      status: 'available',
+      isActive: true
+    }).select('name phone email vehicle');
+    
+    res.json({
+      success: true,
+      data: agents,
+      count: agents.length
+    });
+  } catch (error) {
+    console.error('Error fetching available agents:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching available agents',
+      error: error.message
+    });
+  }
+});
+
+
 // ==================== MENU MANAGEMENT ====================
 // Get all menu items
 router.get('/menu', async (req, res) => {
@@ -571,4 +843,7 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
+
+
 module.exports = router;
+
