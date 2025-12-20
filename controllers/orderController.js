@@ -1,5 +1,25 @@
 const Order = require('../models/Order');
 const Menu = require('../models/Menu');
+const Razorpay = require('razorpay');
+
+// Initialize Razorpay - FIXED: No initialization at bottom
+let razorpayInstance = null;
+
+// Function to initialize Razorpay lazily
+const getRazorpayInstance = () => {
+  if (!razorpayInstance) {
+    if (process.env.RZP_KEY_ID && process.env.RZP_KEY_SECRET) {
+      razorpayInstance = new Razorpay({
+        key_id: process.env.RZP_KEY_ID,
+        key_secret: process.env.RZP_KEY_SECRET
+      });
+      console.log('✅ Razorpay initialized successfully');
+    } else {
+      console.warn('⚠️ Razorpay keys not configured');
+    }
+  }
+  return razorpayInstance;
+};
 
 // Create new order
 exports.createOrder = async (req, res) => {
@@ -200,47 +220,41 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
-// Helper function to calculate delivery charge
-function calculateDeliveryCharge(address) {
-  if (!address || !address.lat || !address.lng) {
-    return 0;
+// Get assigned orders for delivery agent - NEW FUNCTION
+exports.getAssignedOrdersForAgent = async (req, res) => {
+  try {
+    // This would require delivery agent authentication
+    // For now, returning empty or mock data
+    console.log('🛵 Getting assigned orders for delivery agent');
+    
+    // In a real implementation, you would:
+    // 1. Get delivery agent ID from auth
+    // 2. Find orders assigned to this agent
+    // 3. Return those orders
+    
+    const orders = await Order.find({
+      deliveryAgent: req.user.uid, // Assuming delivery agent has auth
+      status: { $in: ['out_for_delivery', 'preparing'] }
+    })
+    .populate('items.menuItem')
+    .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      data: orders,
+      count: orders.length
+    });
+  } catch (error) {
+    console.error('Error fetching assigned orders:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching assigned orders',
+      error: error.message
+    });
   }
-  
-  // Simplified calculation - in production, use proper distance calculation
-  const restaurantLocation = { lat: 20.6952266, lng: 83.488972 };
-  const distance = calculateDistance(
-    restaurantLocation.lat,
-    restaurantLocation.lng,
-    address.lat,
-    address.lng
-  );
-  
-  if (distance <= 0.5) return 20;
-  if (distance <= 1) return 20;
-  if (distance <= 10) return 20 + Math.ceil(distance - 1) * 10;
-  return 60;
-}
+};
 
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-}
-
-const Razorpay = require("razorpay");
-
-const razorpay = new Razorpay({
-  key_id: process.env.RZP_KEY_ID,
-  key_secret: process.env.RZP_KEY_SECRET
-});
-
-// Add this function to your orderController.js
+// Create Razorpay order
 exports.createRazorpayOrder = async (req, res) => {
   try {
     console.log('Creating Razorpay order...');
@@ -259,25 +273,23 @@ exports.createRazorpayOrder = async (req, res) => {
     // Convert amount to paise
     const amountInPaise = Math.round(amount * 100);
     
+    // Get Razorpay instance
+    const razorpay = getRazorpayInstance();
+    
     // Check if Razorpay is configured
-    if (!process.env.RZP_KEY_ID || !process.env.RZP_KEY_SECRET) {
-      console.error('Razorpay keys not configured');
+    if (!razorpay) {
+      console.error('❌ Razorpay not initialized');
       return res.status(500).json({
         success: false,
         message: 'Payment gateway not configured'
       });
     }
     
-    const Razorpay = require('razorpay');
-    const razorpay = new Razorpay({
-      key_id: process.env.RZP_KEY_ID,
-      key_secret: process.env.RZP_KEY_SECRET
-    });
-    
     const options = {
       amount: amountInPaise,
       currency: 'INR',
       receipt: receipt || 'receipt_' + Date.now(),
+      payment_capture: 1,
       notes: {
         userId: req.user.uid,
         orderType: 'food_delivery'
@@ -298,7 +310,7 @@ exports.createRazorpayOrder = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Razorpay order creation error:', error);
+    console.error('❌ Razorpay order creation error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create payment order',
@@ -307,7 +319,7 @@ exports.createRazorpayOrder = async (req, res) => {
   }
 };
 
-// In your update-payment endpoint (add this in orderController.js)
+// Update payment
 exports.updatePayment = async (req, res) => {
   try {
     const { paymentId, razorpayOrderId, razorpaySignature, status, paymentStatus } = req.body;
@@ -320,7 +332,7 @@ exports.updatePayment = async (req, res) => {
           razorpayOrderId,
           razorpaySignature,
           status: status || 'confirmed',
-          paymentStatus: paymentStatus || 'paid'  // Update payment status
+          paymentStatus: paymentStatus || 'paid'
         }
       },
       { new: true }
@@ -402,8 +414,8 @@ exports.verifyAndUpdatePayment = async (req, res) => {
     order.paymentId = razorpay_payment_id;
     order.razorpayOrderId = razorpay_order_id;
     order.razorpaySignature = razorpay_signature;
-    order.paymentStatus = 'paid'; // CRITICAL: Update payment status
-    order.status = 'confirmed'; // Also update order status
+    order.paymentStatus = 'paid';
+    order.status = 'confirmed';
     
     await order.save();
 
@@ -424,3 +436,36 @@ exports.verifyAndUpdatePayment = async (req, res) => {
     });
   }
 };
+
+// Helper function to calculate delivery charge
+function calculateDeliveryCharge(address) {
+  if (!address || !address.lat || !address.lng) {
+    return 0;
+  }
+  
+  // Simplified calculation - in production, use proper distance calculation
+  const restaurantLocation = { lat: 20.6952266, lng: 83.488972 };
+  const distance = calculateDistance(
+    restaurantLocation.lat,
+    restaurantLocation.lng,
+    address.lat,
+    address.lng
+  );
+  
+  if (distance <= 0.5) return 20;
+  if (distance <= 1) return 20;
+  if (distance <= 10) return 20 + Math.ceil(distance - 1) * 10;
+  return 60;
+}
+
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
