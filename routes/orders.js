@@ -82,6 +82,13 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// 🔹 Delivery agent routes
+router.get(
+  "/agent/assigned",
+  orderController.getAssignedOrdersForAgent
+);
+
+
 // Update order status (Admin only)
 router.put('/:id/status', orderController.updateOrderStatus);
 
