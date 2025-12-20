@@ -72,4 +72,4 @@ deliveryAgentSchema.methods.toJSON = function() {
   return obj;
 };
 
-module.exports = mongoose.model('DeliveryAgent', deliveryAgentModel);
+module.exports = mongoose.model('DeliveryAgent', deliveryAgentSchema);
