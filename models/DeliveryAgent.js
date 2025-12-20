@@ -65,4 +65,11 @@ deliveryAgentSchema.methods.comparePassword = async function(candidatePassword) 
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model('DeliveryAgent', deliveryAgentSchema);
+// Remove password from JSON output
+deliveryAgentSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+module.exports = mongoose.model('DeliveryAgent', deliveryAgentModel);
