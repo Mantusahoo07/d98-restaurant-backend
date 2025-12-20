@@ -6,7 +6,7 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
-const DeliveryAgent = require('../models/DeliveryAgent');
+const DeliveryAgent = require('../models/DeliveryAgent'); // Single require
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -472,10 +472,7 @@ router.delete('/categories/:id', async (req, res) => {
   }
 });
 
-
 // ==================== DELIVERY AGENTS MANAGEMENT ====================
-// Add this require at the top of your admin.js file with other requires
-const DeliveryAgent = require('../models/DeliveryAgent');
 
 // Get all delivery agents
 router.get('/delivery-agents', async (req, res) => {
@@ -483,6 +480,7 @@ router.get('/delivery-agents', async (req, res) => {
     console.log('📦 Fetching delivery agents...');
     
     const agents = await DeliveryAgent.find({ isActive: true })
+      .select('-password')
       .sort({ createdAt: -1 });
     
     console.log(`✅ Found ${agents.length} delivery agents`);
@@ -543,7 +541,16 @@ router.post('/delivery-agents', async (req, res) => {
     
     res.status(201).json({
       success: true,
-      data: agent,
+      data: {
+        _id: agent._id,
+        name: agent.name,
+        email: agent.email,
+        phone: agent.phone,
+        vehicle: agent.vehicle,
+        status: agent.status,
+        ordersDelivered: agent.ordersDelivered,
+        createdAt: agent.createdAt
+      },
       message: 'Delivery agent created successfully'
     });
   } catch (error) {
@@ -595,7 +602,16 @@ router.put('/delivery-agents/:id', async (req, res) => {
     
     res.json({
       success: true,
-      data: agent,
+      data: {
+        _id: agent._id,
+        name: agent.name,
+        email: agent.email,
+        phone: agent.phone,
+        vehicle: agent.vehicle,
+        status: agent.status,
+        ordersDelivered: agent.ordersDelivered,
+        updatedAt: agent.updatedAt
+      },
       message: 'Delivery agent updated successfully'
     });
   } catch (error) {
@@ -668,7 +684,11 @@ router.patch('/delivery-agents/:id/toggle-status', async (req, res) => {
     
     res.json({
       success: true,
-      data: agent,
+      data: {
+        _id: agent._id,
+        name: agent.name,
+        status: agent.status
+      },
       message: 'Agent status updated successfully'
     });
   } catch (error) {
@@ -687,7 +707,7 @@ router.get('/delivery-agents/available', async (req, res) => {
     const agents = await DeliveryAgent.find({
       status: 'available',
       isActive: true
-    }).select('name phone email vehicle');
+    }).select('name phone email vehicle status');
     
     res.json({
       success: true,
@@ -703,7 +723,6 @@ router.get('/delivery-agents/available', async (req, res) => {
     });
   }
 });
-
 
 // ==================== MENU MANAGEMENT ====================
 // Get all menu items
@@ -843,7 +862,4 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
-
-
 module.exports = router;
-

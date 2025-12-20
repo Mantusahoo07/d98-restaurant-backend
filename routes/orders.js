@@ -83,11 +83,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // 🔹 Delivery agent routes
-router.get(
-  "/agent/assigned",
-  orderController.getAssignedOrdersForAgent
-);
-
+router.get("/agent/assigned", orderController.getAssignedOrdersForAgent);
 
 // Update order status (Admin only)
 router.put('/:id/status', orderController.updateOrderStatus);
@@ -96,7 +92,32 @@ router.put('/:id/status', orderController.updateOrderStatus);
 router.post('/:id/verify-otp', orderController.verifyOtp);
 
 // Create Razorpay order
-router.post('/razorpay/create-order', orderController.createRazorpayOrder);
+router.post('/razorpay/create-order', async (req, res) => {
+    try {
+        console.log('💳 Creating Razorpay order via orders route');
+        
+        // Check if controller function exists
+        if (!orderController.createRazorpayOrder) {
+            console.error('❌ orderController.createRazorpayOrder is undefined');
+            return res.status(500).json({
+                success: false,
+                message: 'Payment function not available',
+                error: 'Function undefined'
+            });
+        }
+        
+        // Call the controller function
+        return orderController.createRazorpayOrder(req, res);
+        
+    } catch (error) {
+        console.error('❌ Error in Razorpay route:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Payment gateway error',
+            error: error.message
+        });
+    }
+});
 
 // Verify payment
 router.post('/:id/verify-payment', orderController.verifyAndUpdatePayment);
