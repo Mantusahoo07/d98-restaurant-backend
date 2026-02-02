@@ -283,6 +283,73 @@ exports.markAsPickedUp = async (req, res) => {
     }
 };
 
+// Verify OTP for delivery agent
+exports.verifyDeliveryOtp = async (req, res) => {
+    try {
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Delivery agent not found'
+            });
+        }
+
+        const order = await Order.findById(req.params.id);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+
+        // Check if order is assigned to this agent
+        if (order.deliveryAgent.toString() !== agent._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Order not assigned to you'
+            });
+        }
+
+        const { otp } = req.body;
+
+        if (order.deliveryOtp !== otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid OTP'
+            });
+        }
+
+        // OTP verified, mark as delivered
+        order.status = 'delivered';
+        order.deliveredAt = new Date();
+        order.otpVerified = true;
+        await order.save();
+
+        // Update agent status and increment deliveries
+        agent.status = 'available';
+        agent.ordersDelivered += 1;
+        await agent.save();
+
+        const updatedOrder = await Order.findById(order._id)
+            .populate('items.menuItem');
+
+        res.json({
+            success: true,
+            order: updatedOrder,
+            message: 'OTP verified and order marked as delivered'
+        });
+    } catch (error) {
+        console.error('Error verifying delivery OTP:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error verifying delivery OTP',
+            error: error.message
+        });
+    }
+};
+
 // Mark order as delivered
 exports.markAsDelivered = async (req, res) => {
     try {
