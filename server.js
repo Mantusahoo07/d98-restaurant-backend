@@ -18,12 +18,14 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/d98-resta
 });
 
 mongoose.connection.on('connected', () => {
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB');
 });
 
-const razorpayRoutes = require('./routes/razorpay');
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
 
-// Root Route (Fix for "Cannot GET /")
+// Root Route
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -34,36 +36,48 @@ app.get('/', (req, res) => {
       orders: '/api/orders',
       users: '/api/users',
       auth: '/api/auth',
-      razorpay: '/api/razorpay/create-order'
+      delivery: '/api/delivery', // ADDED THIS
+      razorpay: '/api/razorpay/create-order',
+      admin: '/api/admin'
     }
   });
 });
 
-// In your main server file
+// Import ALL route files
 const usersRouter = require('./routes/users');
+const menuRouter = require('./routes/menu');
+const ordersRouter = require('./routes/orders');
+const authRouter = require('./routes/auth');
+const categoriesRouter = require('./routes/categories');
+const razorpayRouter = require('./routes/razorpay');
+const adminRouter = require('./routes/admin');
 
-// Mount routes
+// IMPORTANT: Add delivery routes
+const deliveryRouter = require('./routes/delivery');
+
+// Mount ALL routes
 app.use('/api/users', usersRouter);
+app.use('/api/menu', menuRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/categories', categoriesRouter);
+app.use('/api/razorpay', razorpayRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/delivery', deliveryRoutes);
 
-// Routes
-app.use('/api/menu', require('./routes/menu'));
-app.use('/api/orders', require('./routes/orders'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/categories', require('./routes/categories'));
-app.use('/api/razorpay', razorpayRoutes);
-app.use('/api/razorpay', require('./routes/razorpay'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/delivery', require('./routes/delivery'));
-
+// CRITICAL: Mount delivery routes - ADD THIS LINE
+app.use('/api/delivery', deliveryRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
-    message: 'D98 Restaurant API is running' 
+    message: 'D98 Restaurant API is running',
+    timestamp: new Date().toISOString()
   });
 });
+
+// Razorpay key endpoint
 app.get('/api/config/razorpay-key', (req, res) => {
   res.json({
     success: true,
@@ -71,7 +85,29 @@ app.get('/api/config/razorpay-key', (req, res) => {
   });
 });
 
+// 404 handler for undefined routes
+app.use('*', (req, res) => {
+  console.log(`❌ Route not found: ${req.originalUrl}`);
+  res.status(404).json({
+    success: false,
+    message: 'Route not found',
+    path: req.originalUrl
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`📞 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🚚 Delivery API: http://localhost:${PORT}/api/delivery/profile`);
 });
