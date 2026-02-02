@@ -402,6 +402,67 @@ router.post('/orders/:id/pickup', async (req, res) => {
     }
 });
 
+// Verify delivery OTP
+router.post('/orders/:id/verify-otp', async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const { otp } = req.body;
+        console.log(`🔑 Verifying OTP for order ${orderId} by: ${req.user.email}`);
+        
+        const DeliveryAgent = require('../models/DeliveryAgent');
+        const Order = require('../models/Order');
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        const order = await Order.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        // Verify agent owns this order
+        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Order not assigned to you'
+            });
+        }
+        
+        if (order.deliveryOtp !== otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid OTP'
+            });
+        }
+        
+        // OTP verified, mark as delivered
+        order.status = 'delivered';
+        order.deliveredAt = new Date();
+        order.otpVerified = true;
+        await order.save();
+        
+        // Update agent stats
+        agent.ordersDelivered += 1;
+        agent.status = 'available';
+        await agent.save();
+        
+        res.json({
+            success: true,
+            message: 'OTP verified and order marked as delivered'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error verifying OTP:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error verifying OTP',
+            error: error.message
+        });
+    }
+});
+
 // Mark order as delivered
 router.post('/orders/:id/deliver', async (req, res) => {
     try {
