@@ -430,6 +430,13 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
             });
         }
         
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP is required'
+            });
+        }
+        
         if (order.deliveryOtp !== otp) {
             return res.status(400).json({
                 success: false,
@@ -462,7 +469,6 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
         });
     }
 });
-
 // Mark order as delivered
 router.post('/orders/:id/deliver', async (req, res) => {
     try {
@@ -705,5 +711,6 @@ router.get('/check-agent', async (req, res) => {
         });
     }
 });
+
 
 module.exports = router;
