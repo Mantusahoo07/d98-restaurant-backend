@@ -283,7 +283,7 @@ exports.markAsPickedUp = async (req, res) => {
     }
 };
 
-// Verify OTP for delivery agent
+// Verify delivery OTP
 exports.verifyDeliveryOtp = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -314,6 +314,13 @@ exports.verifyDeliveryOtp = async (req, res) => {
 
         const { otp } = req.body;
 
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP is required'
+            });
+        }
+
         if (order.deliveryOtp !== otp) {
             return res.status(400).json({
                 success: false,
@@ -332,12 +339,8 @@ exports.verifyDeliveryOtp = async (req, res) => {
         agent.ordersDelivered += 1;
         await agent.save();
 
-        const updatedOrder = await Order.findById(order._id)
-            .populate('items.menuItem');
-
         res.json({
             success: true,
-            order: updatedOrder,
             message: 'OTP verified and order marked as delivered'
         });
     } catch (error) {
@@ -349,7 +352,6 @@ exports.verifyDeliveryOtp = async (req, res) => {
         });
     }
 };
-
 // Mark order as delivered
 exports.markAsDelivered = async (req, res) => {
     try {
