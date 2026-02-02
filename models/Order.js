@@ -81,9 +81,13 @@ const orderSchema = new mongoose.Schema({
     default: 'online'
   },
   deliveryAgent: {
-  type: String, // Firebase UID of agent
-  default: null
-},
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DeliveryAgent',
+    default: null
+  },
+  
+  assignedAt: Date,
+  
 
   paymentId: String,
   razorpayOrderId: String,
