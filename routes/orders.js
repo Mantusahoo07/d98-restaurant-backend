@@ -88,8 +88,8 @@ router.get("/agent/assigned", orderController.getAssignedOrdersForAgent);
 // Update order status (Admin only)
 router.put('/:id/status', orderController.updateOrderStatus);
 
-// Verify OTP
-router.post('/:id/verify-otp', orderController.verifyOtp);
+// Verify delivery OTP (for delivery agents)
+router.post('/:id/verify-delivery-otp', orderController.verifyDeliveryOtp);
 
 // Create Razorpay order
 router.post('/razorpay/create-order', async (req, res) => {

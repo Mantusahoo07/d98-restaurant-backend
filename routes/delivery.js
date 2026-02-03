@@ -404,18 +404,28 @@ router.post('/orders/:id/pickup', async (req, res) => {
 
 
 
-// Mark order as delivered
-router.post('/orders/:id/deliver', async (req, res) => {
+// Verify delivery OTP
+router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
     try {
         const orderId = req.params.id;
-        console.log(`✅ Marking order ${orderId} as delivered by: ${req.user.email}`);
+        const { otp } = req.body;
+        
+        console.log(`🔑 Verifying delivery OTP for order: ${orderId}`);
         
         const DeliveryAgent = require('../models/DeliveryAgent');
         const Order = require('../models/Order');
         
+        // Get the agent
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        const order = await Order.findById(orderId);
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Delivery agent not found'
+            });
+        }
         
+        // Get the order
+        const order = await Order.findById(orderId);
         if (!order) {
             return res.status(404).json({
                 success: false,
@@ -431,26 +441,47 @@ router.post('/orders/:id/deliver', async (req, res) => {
             });
         }
         
+        // Check if order is already delivered
+        if (order.status === 'delivered') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is already delivered'
+            });
+        }
+        
+        // Verify OTP
+        if (!order.deliveryOtp || order.deliveryOtp !== otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid OTP. Please ask customer for correct OTP.'
+            });
+        }
+        
+        // OTP verified, mark as delivered
         order.status = 'delivered';
         order.deliveredAt = new Date();
+        order.otpVerified = true;
         await order.save();
         
-        // Update agent stats
-        agent.ordersDelivered += 1;
+        // Update agent status and increment deliveries
         agent.status = 'available';
+        agent.ordersDelivered += 1;
         await agent.save();
+        
+        const updatedOrder = await Order.findById(orderId)
+            .populate('items.menuItem');
         
         res.json({
             success: true,
-            order: order,
-            message: 'Order marked as delivered'
+            message: 'OTP verified and order marked as delivered',
+            order: updatedOrder
         });
         
     } catch (error) {
-        console.error('❌ Error marking order as delivered:', error);
+        console.error('❌ Error verifying delivery OTP:', error);
         res.status(500).json({
             success: false,
-            message: 'Error marking order as delivered',
+            message: 'Error verifying delivery OTP',
             error: error.message
         });
     }
