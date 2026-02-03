@@ -212,7 +212,7 @@ router.get('/orders/active', async (req, res) => {
         
         const orders = await Order.find({
             deliveryAgent: agent._id,
-            status: { $in: ['preparing', 'out_for_delivery', 'assigned', 'picked_up'] }
+            status: { $in: ['preparing', 'out_for_delivery', 'assigned'] }
         })
         .populate('items.menuItem')
         .sort({ createdAt: -1 });
@@ -356,11 +356,11 @@ router.post('/assignments/:id/reject', async (req, res) => {
     }
 });
 
-// Mark order as picked up
-router.post('/orders/:id/pickup', async (req, res) => {
+// Mark order as delivered
+router.post('/orders/:id/deliver', async (req, res) => {
     try {
         const orderId = req.params.id;
-        console.log(`📦 Marking order ${orderId} as picked up by: ${req.user.email}`);
+        console.log(`✅ Marking order ${orderId} as delivered by: ${req.user.email}`);
         
         const DeliveryAgent = require('../models/DeliveryAgent');
         const Order = require('../models/Order');
@@ -383,26 +383,32 @@ router.post('/orders/:id/pickup', async (req, res) => {
             });
         }
         
-        order.status = 'out_for_delivery';
+        order.status = 'delivered';
+        order.deliveredAt = new Date();
         await order.save();
+        
+        // Update agent stats
+        agent.ordersDelivered += 1;
+        agent.status = 'available';
+        await agent.save();
         
         res.json({
             success: true,
             order: order,
-            message: 'Order marked as picked up'
+            message: 'Order marked as delivered'
         });
         
     } catch (error) {
-        console.error('❌ Error marking order as picked up:', error);
+        console.error('❌ Error marking order as delivered:', error);
         res.status(500).json({
             success: false,
-            message: 'Error marking order as picked up',
+            message: 'Error marking order as delivered',
             error: error.message
         });
     }
 });
 
-// Verify delivery OTP
+// VERIFY DELIVERY OTP - NEW ENDPOINT
 router.post('/orders/:id/verify-otp', async (req, res) => {
     try {
         const orderId = req.params.id;
@@ -482,58 +488,6 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error verifying OTP',
-            error: error.message
-        });
-    }
-});
-
-// Mark order as delivered
-router.post('/orders/:id/deliver', async (req, res) => {
-    try {
-        const orderId = req.params.id;
-        console.log(`✅ Marking order ${orderId} as delivered by: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
-        
-        const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        const order = await Order.findById(orderId);
-        
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
-        }
-        
-        // Verify agent owns this order
-        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'Order not assigned to you'
-            });
-        }
-        
-        order.status = 'delivered';
-        order.deliveredAt = new Date();
-        await order.save();
-        
-        // Update agent stats
-        agent.ordersDelivered += 1;
-        agent.status = 'available';
-        await agent.save();
-        
-        res.json({
-            success: true,
-            order: order,
-            message: 'Order marked as delivered'
-        });
-        
-    } catch (error) {
-        console.error('❌ Error marking order as delivered:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error marking order as delivered',
             error: error.message
         });
     }
