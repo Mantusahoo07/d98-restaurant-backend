@@ -283,7 +283,7 @@ exports.markAsPickedUp = async (req, res) => {
     }
 };
 
-// Verify delivery OTP
+// Verify delivery OTP and mark as delivered
 exports.verifyDeliveryOtp = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -305,7 +305,7 @@ exports.verifyDeliveryOtp = async (req, res) => {
         }
 
         // Check if order is assigned to this agent
-        if (order.deliveryAgent.toString() !== agent._id.toString()) {
+        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
             return res.status(403).json({
                 success: false,
                 message: 'Order not assigned to you'
@@ -321,10 +321,19 @@ exports.verifyDeliveryOtp = async (req, res) => {
             });
         }
 
+        // Verify OTP
         if (order.deliveryOtp !== otp) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid OTP'
+            });
+        }
+
+        // Check if order is already delivered
+        if (order.status === 'delivered') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is already delivered'
             });
         }
 
@@ -339,9 +348,13 @@ exports.verifyDeliveryOtp = async (req, res) => {
         agent.ordersDelivered += 1;
         await agent.save();
 
+        const updatedOrder = await Order.findById(order._id)
+            .populate('items.menuItem');
+
         res.json({
             success: true,
-            message: 'OTP verified and order marked as delivered'
+            message: 'OTP verified and order marked as delivered',
+            order: updatedOrder
         });
     } catch (error) {
         console.error('Error verifying delivery OTP:', error);
@@ -352,6 +365,8 @@ exports.verifyDeliveryOtp = async (req, res) => {
         });
     }
 };
+
+
 // Mark order as delivered
 exports.markAsDelivered = async (req, res) => {
     try {
