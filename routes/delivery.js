@@ -402,20 +402,13 @@ router.post('/orders/:id/pickup', async (req, res) => {
     }
 });
 
-// Verify delivery OTP and mark as delivered - NEW ROUTE
-router.post('/orders/:id/verify-otp', async (req, res) => {
+
+
+// Mark order as delivered
+router.post('/orders/:id/deliver', async (req, res) => {
     try {
         const orderId = req.params.id;
-        const { otp } = req.body;
-        
-        console.log(`🔐 Verifying OTP for order ${orderId} by: ${req.user.email}`);
-        
-        if (!otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'OTP is required'
-            });
-        }
+        console.log(`✅ Marking order ${orderId} as delivered by: ${req.user.email}`);
         
         const DeliveryAgent = require('../models/DeliveryAgent');
         const Order = require('../models/Order');
@@ -438,26 +431,8 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
             });
         }
         
-        // Verify OTP
-        if (order.deliveryOtp !== otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid OTP'
-            });
-        }
-        
-        // Check if order is already delivered
-        if (order.status === 'delivered') {
-            return res.status(400).json({
-                success: false,
-                message: 'Order is already delivered'
-            });
-        }
-        
-        // OTP verified, mark as delivered
         order.status = 'delivered';
         order.deliveredAt = new Date();
-        order.otpVerified = true;
         await order.save();
         
         // Update agent stats
@@ -465,26 +440,21 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
         agent.status = 'available';
         await agent.save();
         
-        const updatedOrder = await Order.findById(orderId)
-            .populate('items.menuItem');
-        
         res.json({
             success: true,
-            order: updatedOrder,
-            message: 'OTP verified and order marked as delivered'
+            order: order,
+            message: 'Order marked as delivered'
         });
         
     } catch (error) {
-        console.error('❌ Error verifying OTP:', error);
+        console.error('❌ Error marking order as delivered:', error);
         res.status(500).json({
             success: false,
-            message: 'Error verifying OTP',
+            message: 'Error marking order as delivered',
             error: error.message
         });
     }
 });
-
-
 
 // Get earnings
 router.get('/earnings', async (req, res) => {
