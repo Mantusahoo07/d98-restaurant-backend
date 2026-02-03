@@ -285,9 +285,8 @@ exports.markAsPickedUp = async (req, res) => {
 
 
 
-
-// Verify delivery OTP and mark as delivered
-exports.verifyDeliveryOtp = async (req, res) => {
+// Mark order as delivered
+exports.markAsDelivered = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
 
@@ -308,42 +307,15 @@ exports.verifyDeliveryOtp = async (req, res) => {
         }
 
         // Check if order is assigned to this agent
-        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
+        if (order.deliveryAgent.toString() !== agent._id.toString()) {
             return res.status(403).json({
                 success: false,
                 message: 'Order not assigned to you'
             });
         }
 
-        const { otp } = req.body;
-
-        if (!otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'OTP is required'
-            });
-        }
-
-        // Verify OTP
-        if (order.deliveryOtp !== otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid OTP'
-            });
-        }
-
-        // Check if order is already delivered
-        if (order.status === 'delivered') {
-            return res.status(400).json({
-                success: false,
-                message: 'Order is already delivered'
-            });
-        }
-
-        // OTP verified, mark as delivered
         order.status = 'delivered';
         order.deliveredAt = new Date();
-        order.otpVerified = true;
         await order.save();
 
         // Update agent status and increment deliveries
@@ -356,18 +328,18 @@ exports.verifyDeliveryOtp = async (req, res) => {
 
         res.json({
             success: true,
-            message: 'OTP verified and order marked as delivered',
             order: updatedOrder
         });
     } catch (error) {
-        console.error('Error verifying delivery OTP:', error);
+        console.error('Error marking as delivered:', error);
         res.status(500).json({
             success: false,
-            message: 'Error verifying delivery OTP',
+            message: 'Error marking as delivered',
             error: error.message
         });
     }
 };
+
 // Get earnings data
 exports.getEarnings = async (req, res) => {
     try {
