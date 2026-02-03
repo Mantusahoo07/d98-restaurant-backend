@@ -212,7 +212,7 @@ router.get('/orders/active', async (req, res) => {
         
         const orders = await Order.find({
             deliveryAgent: agent._id,
-            status: { $in: ['preparing', 'out_for_delivery', 'assigned'] }
+            status: { $in: ['preparing', 'out_for_delivery', 'assigned', 'picked_up'] }
         })
         .populate('items.menuItem')
         .sort({ createdAt: -1 });
@@ -356,6 +356,134 @@ router.post('/assignments/:id/reject', async (req, res) => {
     }
 });
 
+// Mark order as picked up
+router.post('/orders/:id/pickup', async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        console.log(`📦 Marking order ${orderId} as picked up by: ${req.user.email}`);
+        
+        const DeliveryAgent = require('../models/DeliveryAgent');
+        const Order = require('../models/Order');
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        const order = await Order.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        // Verify agent owns this order
+        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Order not assigned to you'
+            });
+        }
+        
+        order.status = 'out_for_delivery';
+        await order.save();
+        
+        res.json({
+            success: true,
+            order: order,
+            message: 'Order marked as picked up'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error marking order as picked up:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking order as picked up',
+            error: error.message
+        });
+    }
+});
+
+// Verify delivery OTP and mark as delivered - NEW ROUTE
+router.post('/orders/:id/verify-otp', async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const { otp } = req.body;
+        
+        console.log(`🔐 Verifying OTP for order ${orderId} by: ${req.user.email}`);
+        
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP is required'
+            });
+        }
+        
+        const DeliveryAgent = require('../models/DeliveryAgent');
+        const Order = require('../models/Order');
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        const order = await Order.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        // Verify agent owns this order
+        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Order not assigned to you'
+            });
+        }
+        
+        // Verify OTP
+        if (order.deliveryOtp !== otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid OTP'
+            });
+        }
+        
+        // Check if order is already delivered
+        if (order.status === 'delivered') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is already delivered'
+            });
+        }
+        
+        // OTP verified, mark as delivered
+        order.status = 'delivered';
+        order.deliveredAt = new Date();
+        order.otpVerified = true;
+        await order.save();
+        
+        // Update agent stats
+        agent.ordersDelivered += 1;
+        agent.status = 'available';
+        await agent.save();
+        
+        const updatedOrder = await Order.findById(orderId)
+            .populate('items.menuItem');
+        
+        res.json({
+            success: true,
+            order: updatedOrder,
+            message: 'OTP verified and order marked as delivered'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error verifying OTP:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error verifying OTP',
+            error: error.message
+        });
+    }
+});
+
 // Mark order as delivered
 router.post('/orders/:id/deliver', async (req, res) => {
     try {
@@ -403,91 +531,6 @@ router.post('/orders/:id/deliver', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error marking order as delivered',
-            error: error.message
-        });
-    }
-});
-
-// VERIFY DELIVERY OTP - NEW ENDPOINT
-router.post('/orders/:id/verify-otp', async (req, res) => {
-    try {
-        const orderId = req.params.id;
-        const { otp } = req.body;
-        console.log(`🔑 Verifying OTP for order ${orderId} by: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
-        
-        const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        
-        if (!agent) {
-            return res.status(404).json({
-                success: false,
-                message: 'Agent not found'
-            });
-        }
-        
-        const order = await Order.findById(orderId);
-        
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
-        }
-        
-        // Verify agent owns this order
-        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'Order not assigned to you'
-            });
-        }
-        
-        if (!otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'OTP is required'
-            });
-        }
-        
-        // Verify OTP
-        if (order.deliveryOtp !== otp) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid OTP'
-            });
-        }
-        
-        // Check if already delivered
-        if (order.status === 'delivered') {
-            return res.status(400).json({
-                success: false,
-                message: 'Order is already delivered'
-            });
-        }
-        
-        // OTP verified, mark as delivered
-        order.status = 'delivered';
-        order.deliveredAt = new Date();
-        order.otpVerified = true;
-        await order.save();
-        
-        // Update agent stats
-        agent.ordersDelivered += 1;
-        agent.status = 'available';
-        await agent.save();
-        
-        res.json({
-            success: true,
-            message: 'OTP verified and order marked as delivered'
-        });
-        
-    } catch (error) {
-        console.error('❌ Error verifying OTP:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error verifying OTP',
             error: error.message
         });
     }
