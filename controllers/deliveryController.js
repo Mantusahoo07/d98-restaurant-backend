@@ -283,6 +283,9 @@ exports.markAsPickedUp = async (req, res) => {
     }
 };
 
+
+
+
 // Verify delivery OTP and mark as delivered
 exports.verifyDeliveryOtp = async (req, res) => {
     try {
@@ -365,63 +368,6 @@ exports.verifyDeliveryOtp = async (req, res) => {
         });
     }
 };
-
-
-// Mark order as delivered
-exports.markAsDelivered = async (req, res) => {
-    try {
-        const agent = await DeliveryAgent.findOne({ email: req.user.email });
-
-        if (!agent) {
-            return res.status(404).json({
-                success: false,
-                message: 'Delivery agent not found'
-            });
-        }
-
-        const order = await Order.findById(req.params.id);
-
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
-        }
-
-        // Check if order is assigned to this agent
-        if (order.deliveryAgent.toString() !== agent._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'Order not assigned to you'
-            });
-        }
-
-        order.status = 'delivered';
-        order.deliveredAt = new Date();
-        await order.save();
-
-        // Update agent status and increment deliveries
-        agent.status = 'available';
-        agent.ordersDelivered += 1;
-        await agent.save();
-
-        const updatedOrder = await Order.findById(order._id)
-            .populate('items.menuItem');
-
-        res.json({
-            success: true,
-            order: updatedOrder
-        });
-    } catch (error) {
-        console.error('Error marking as delivered:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error marking as delivered',
-            error: error.message
-        });
-    }
-};
-
 // Get earnings data
 exports.getEarnings = async (req, res) => {
     try {
