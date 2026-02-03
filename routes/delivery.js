@@ -413,6 +413,14 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
         const Order = require('../models/Order');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agent not found'
+            });
+        }
+        
         const order = await Order.findById(orderId);
         
         if (!order) {
@@ -437,10 +445,19 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
             });
         }
         
+        // Verify OTP
         if (order.deliveryOtp !== otp) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid OTP'
+            });
+        }
+        
+        // Check if already delivered
+        if (order.status === 'delivered') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is already delivered'
             });
         }
         
@@ -469,6 +486,7 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
         });
     }
 });
+
 // Mark order as delivered
 router.post('/orders/:id/deliver', async (req, res) => {
     try {
@@ -711,6 +729,5 @@ router.get('/check-agent', async (req, res) => {
         });
     }
 });
-
 
 module.exports = router;
