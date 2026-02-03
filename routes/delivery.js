@@ -484,57 +484,7 @@ router.post('/orders/:id/verify-otp', async (req, res) => {
     }
 });
 
-// Mark order as delivered
-router.post('/orders/:id/deliver', async (req, res) => {
-    try {
-        const orderId = req.params.id;
-        console.log(`✅ Marking order ${orderId} as delivered by: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
-        
-        const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        const order = await Order.findById(orderId);
-        
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
-        }
-        
-        // Verify agent owns this order
-        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'Order not assigned to you'
-            });
-        }
-        
-        order.status = 'delivered';
-        order.deliveredAt = new Date();
-        await order.save();
-        
-        // Update agent stats
-        agent.ordersDelivered += 1;
-        agent.status = 'available';
-        await agent.save();
-        
-        res.json({
-            success: true,
-            order: order,
-            message: 'Order marked as delivered'
-        });
-        
-    } catch (error) {
-        console.error('❌ Error marking order as delivered:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error marking order as delivered',
-            error: error.message
-        });
-    }
-});
+
 
 // Get earnings
 router.get('/earnings', async (req, res) => {
