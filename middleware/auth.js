@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 
-// Firebase Service Account Object
+// Firebase Service Account Object (Render compatible)
 const serviceAccount = {
   type: "service_account",
   project_id: process.env.FIREBASE_PROJECT_ID,
@@ -14,45 +14,31 @@ const serviceAccount = {
   client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
 };
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
-// Simple auth middleware
+// Middleware for verifying Firebase token
 const auth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'No token provided'
+        message: "No token provided",
       });
     }
-    
-    const token = authHeader.split('Bearer ')[1];
-    
-    // Verify token WITHOUT checking revocation for now
-    const decoded = await admin.auth().verifyIdToken(token, false); // Set to false
-    
+
+    const decoded = await admin.auth().verifyIdToken(token);
     req.user = decoded;
-    req.userId = decoded.uid;
-    
-    console.log(`✅ Token verified for: ${decoded.email || decoded.uid.substring(0, 8)}...`);
-    
     next();
-    
+
   } catch (error) {
-    console.error("Auth Error:", error.code, error.message);
-    
-    // Don't differentiate between expired and invalid for now
-    return res.status(401).json({
+    console.error("Auth Error:", error);
+    res.status(401).json({
       success: false,
-      message: 'Authentication failed',
-      code: 'AUTH_FAILED'
+      message: "Invalid token",
     });
   }
 };
