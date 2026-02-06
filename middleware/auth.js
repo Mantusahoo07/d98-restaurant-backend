@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 
-// Firebase Service Account Object (Render compatible)
+// Firebase Service Account Object
 const serviceAccount = {
   type: "service_account",
   project_id: process.env.FIREBASE_PROJECT_ID,
@@ -14,49 +14,45 @@ const serviceAccount = {
   client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
 };
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
 
-// Middleware for verifying Firebase token
+// Simple auth middleware
 const auth = async (req, res, next) => {
   try {
-    const token = req.header("Authorization")?.replace("Bearer ", "");
-
-    if (!token) {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
-        message: "No token provided",
+        message: 'No token provided'
       });
     }
-
-    // Add this line to check revoked tokens
-    const decoded = await admin.auth().verifyIdToken(token, true); // Added "true" parameter
+    
+    const token = authHeader.split('Bearer ')[1];
+    
+    // Verify token WITHOUT checking revocation for now
+    const decoded = await admin.auth().verifyIdToken(token, false); // Set to false
     
     req.user = decoded;
     req.userId = decoded.uid;
     
-    // Log for debugging (optional)
-    console.log(`✅ Token verified for user: ${decoded.email || decoded.uid}`);
+    console.log(`✅ Token verified for: ${decoded.email || decoded.uid.substring(0, 8)}...`);
     
     next();
-
+    
   } catch (error) {
-    console.error("Auth Error:", error.message);
+    console.error("Auth Error:", error.code, error.message);
     
-    // Handle expired tokens specifically
-    if (error.code === 'auth/id-token-expired' || error.message.includes('expired')) {
-      return res.status(401).json({
-        success: false,
-        message: "Token has expired. Please refresh your session.",
-        code: "TOKEN_EXPIRED" // Added this code for frontend to recognize
-      });
-    }
-    
-    res.status(401).json({
+    // Don't differentiate between expired and invalid for now
+    return res.status(401).json({
       success: false,
-      message: "Invalid token",
-      error: error.message
+      message: 'Authentication failed',
+      code: 'AUTH_FAILED'
     });
   }
 };
