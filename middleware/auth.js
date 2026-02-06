@@ -30,15 +30,33 @@ const auth = async (req, res, next) => {
       });
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    // Add this line to check revoked tokens
+    const decoded = await admin.auth().verifyIdToken(token, true); // Added "true" parameter
+    
     req.user = decoded;
+    req.userId = decoded.uid;
+    
+    // Log for debugging (optional)
+    console.log(`✅ Token verified for user: ${decoded.email || decoded.uid}`);
+    
     next();
 
   } catch (error) {
-    console.error("Auth Error:", error);
+    console.error("Auth Error:", error.message);
+    
+    // Handle expired tokens specifically
+    if (error.code === 'auth/id-token-expired' || error.message.includes('expired')) {
+      return res.status(401).json({
+        success: false,
+        message: "Token has expired. Please refresh your session.",
+        code: "TOKEN_EXPIRED" // Added this code for frontend to recognize
+      });
+    }
+    
     res.status(401).json({
       success: false,
       message: "Invalid token",
+      error: error.message
     });
   }
 };
