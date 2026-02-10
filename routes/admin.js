@@ -7,7 +7,7 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
-const DeliverySettings = require('../models/DeliverySettings'); // New model needed
+const DeliverySettings = require('../models/DeliverySettings'); // Make sure this is imported
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -113,9 +113,12 @@ router.get('/dashboard', async (req, res) => {
 // Get delivery settings
 router.get('/delivery-settings', async (req, res) => {
   try {
+    console.log('📦 Fetching delivery settings...');
+    
     let settings = await DeliverySettings.findOne();
     
     if (!settings) {
+      console.log('🆕 No delivery settings found, creating defaults...');
       // Create default settings if none exist
       settings = await DeliverySettings.create({
         maxDeliveryRadius: 10,
@@ -130,14 +133,16 @@ router.get('/delivery-settings', async (req, res) => {
           lng: 83.488972
         }
       });
+      console.log('✅ Default delivery settings created');
     }
     
+    console.log('✅ Delivery settings loaded');
     res.json({
       success: true,
       data: settings
     });
   } catch (error) {
-    console.error('Error fetching delivery settings:', error);
+    console.error('❌ Error fetching delivery settings:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching delivery settings'
@@ -148,6 +153,8 @@ router.get('/delivery-settings', async (req, res) => {
 // Update delivery settings
 router.put('/delivery-settings', async (req, res) => {
   try {
+    console.log('✏️ Updating delivery settings:', req.body);
+    
     const {
       maxDeliveryRadius,
       baseDeliveryCharge,
@@ -191,9 +198,9 @@ router.put('/delivery-settings', async (req, res) => {
           lat: restaurantLat || 20.6952266,
           lng: restaurantLng || 83.488972
         },
-        updatedBy: req.user.id,
         updatedAt: new Date()
       });
+      console.log('✅ New delivery settings created');
     } else {
       // Update existing settings
       settings.maxDeliveryRadius = maxDeliveryRadius;
@@ -207,10 +214,10 @@ router.put('/delivery-settings', async (req, res) => {
         lat: restaurantLat || settings.restaurantLocation.lat,
         lng: restaurantLng || settings.restaurantLocation.lng
       };
-      settings.updatedBy = req.user.id;
       settings.updatedAt = new Date();
       
       await settings.save();
+      console.log('✅ Delivery settings updated');
     }
     
     res.json({
@@ -219,7 +226,7 @@ router.put('/delivery-settings', async (req, res) => {
       data: settings
     });
   } catch (error) {
-    console.error('Error updating delivery settings:', error);
+    console.error('❌ Error updating delivery settings:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating delivery settings'
@@ -230,6 +237,8 @@ router.put('/delivery-settings', async (req, res) => {
 // Reset delivery settings to defaults
 router.post('/delivery-settings/reset', async (req, res) => {
   try {
+    console.log('🔄 Resetting delivery settings to defaults');
+    
     let settings = await DeliverySettings.findOne();
     
     const defaultSettings = {
@@ -244,15 +253,16 @@ router.post('/delivery-settings/reset', async (req, res) => {
         lat: 20.6952266,
         lng: 83.488972
       },
-      updatedBy: req.user.id,
       updatedAt: new Date()
     };
     
     if (!settings) {
       settings = await DeliverySettings.create(defaultSettings);
+      console.log('✅ Default delivery settings created');
     } else {
       Object.assign(settings, defaultSettings);
       await settings.save();
+      console.log('✅ Delivery settings reset to defaults');
     }
     
     res.json({
@@ -261,7 +271,7 @@ router.post('/delivery-settings/reset', async (req, res) => {
       data: settings
     });
   } catch (error) {
-    console.error('Error resetting delivery settings:', error);
+    console.error('❌ Error resetting delivery settings:', error);
     res.status(500).json({
       success: false,
       message: 'Error resetting delivery settings'
