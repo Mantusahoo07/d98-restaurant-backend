@@ -62,13 +62,9 @@ const DeliverySettingsSchema = new mongoose.Schema({
     updatedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
-    },
-    updatedAt: {
-        type: Date,
-        default: Date.now
     }
 }, {
-    timestamps: true
+    timestamps: true  // This will automatically add createdAt and updatedAt
 });
 
 // Ensure only one document exists
@@ -81,10 +77,5 @@ DeliverySettingsSchema.statics.getSettings = async function() {
     
     return settings;
 };
-
-DeliverySettingsSchema.pre('save', function(next) {
-    this.updatedAt = new Date();
-    next();
-});
 
 module.exports = mongoose.model('DeliverySettings', DeliverySettingsSchema);
