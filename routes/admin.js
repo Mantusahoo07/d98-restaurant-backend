@@ -164,17 +164,6 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
-// ==================== DELIVERY SETTINGS MANAGEMENT ====================
-// GET delivery settings
-
-
-
-// Update delivery settings
-router.put('/delivery-settings', deliverySettingsController.updateDeliverySettings);
-
-// Reset delivery settings to defaults
-router.post('/delivery-settings/reset', deliverySettingsController.resetDeliverySettings);
-
 // ==================== USERS MANAGEMENT ====================
 // Get all users
 router.get('/users', async (req, res) => {
@@ -790,6 +779,24 @@ router.get('/delivery-agents/available', async (req, res) => {
     });
   }
 });
+
+// ================= DELIVERY SETTINGS =================
+
+router.get('/delivery-settings', async (req,res)=>{
+  const DeliverySettings = require('../models/DeliverySettings');
+
+  const settings = await DeliverySettings.findOne() || {};
+
+  res.json({
+    success:true,
+    data:settings
+  });
+});
+
+router.put('/delivery-settings', deliverySettingsController.updateDeliverySettings);
+
+router.post('/delivery-settings/reset', deliverySettingsController.resetDeliverySettings);
+
 
 // ==================== MENU MANAGEMENT ====================
 // Get all menu items
