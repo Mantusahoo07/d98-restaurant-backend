@@ -1,4 +1,48 @@
 // routes/admin.js
+const DeliverySettings = require('../models/DeliverySettings');
+
+// GET delivery settings
+router.get('/delivery-settings', async (req, res) => {
+    try {
+        let settings = await DeliverySettings.findOne();
+
+        if (!settings) {
+            settings = await DeliverySettings.create({});
+        }
+
+        res.json({
+            success: true,
+            data: settings
+        });
+
+    } catch (err) {
+        console.error('Delivery settings GET error:', err);
+        res.status(500).json({ success:false });
+    }
+});
+
+// UPDATE delivery settings
+router.put('/delivery-settings', async (req, res) => {
+    try {
+        const data = req.body;
+
+        const settings = await DeliverySettings.findOneAndUpdate(
+            {},
+            data,
+            { upsert:true, new:true }
+        );
+
+        res.json({
+            success:true,
+            data:settings
+        });
+
+    } catch (err) {
+        console.error('Delivery settings PUT error:', err);
+        res.status(500).json({ success:false });
+    }
+});
+
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
@@ -7,7 +51,6 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
-const DeliverySettings = require('../models/DeliverySettings'); // Make sure this is imported
 const deliverySettingsController = require('../controllers/deliverySettingsController');
 
 // Parse admin emails from environment variable
