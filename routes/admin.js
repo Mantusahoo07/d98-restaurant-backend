@@ -1,19 +1,16 @@
 // routes/admin.js
-const DeliverySettings = require('../models/DeliverySettings');
+const express = require('express');
+const router = express.Router();
 
-// GET delivery settings
 router.get('/delivery-settings', async (req, res) => {
-    try {
-        let settings = await DeliverySettings.findOne();
+  const DeliverySettings = require('../models/DeliverySettings');
+  const settings = await DeliverySettings.findOne() || {};
+  res.json({
+    success: true,
+    data: settings
+  });
+});
 
-        if (!settings) {
-            settings = await DeliverySettings.create({});
-        }
-
-        res.json({
-            success: true,
-            data: settings
-        });
 
     } catch (err) {
         console.error('Delivery settings GET error:', err);
@@ -782,20 +779,6 @@ router.get('/delivery-agents/available', async (req, res) => {
 
 // ================= DELIVERY SETTINGS =================
 
-router.get('/delivery-settings', async (req,res)=>{
-  const DeliverySettings = require('../models/DeliverySettings');
-
-  const settings = await DeliverySettings.findOne() || {};
-
-  res.json({
-    success:true,
-    data:settings
-  });
-});
-
-router.put('/delivery-settings', deliverySettingsController.updateDeliverySettings);
-
-router.post('/delivery-settings/reset', deliverySettingsController.resetDeliverySettings);
 
 
 // ==================== MENU MANAGEMENT ====================
