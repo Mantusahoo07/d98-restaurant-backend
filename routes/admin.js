@@ -8,6 +8,7 @@ const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
 const DeliverySettings = require('../models/DeliverySettings'); // Make sure this is imported
+const deliverySettingsController = require('../controllers/deliverySettingsController');
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -121,174 +122,13 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // ==================== DELIVERY SETTINGS MANAGEMENT ====================
-// Get delivery settings
-router.get('/delivery-settings', async (req, res) => {
-  try {
-    console.log('📦 Fetching delivery settings...');
-    
-    let settings = await DeliverySettings.findOne();
-    
-    if (!settings) {
-      console.log('🆕 No delivery settings found, creating defaults...');
-      // Create default settings if none exist
-      settings = await DeliverySettings.create({
-        maxDeliveryRadius: 10,
-        baseDeliveryCharge: 20,
-        additionalChargePerKm: 10,
-        freeDeliveryWithin5kmThreshold: 999,
-        freeDeliveryUpto10kmThreshold: 1499,
-        platformFeePercent: 3,
-        gstPercent: 5,
-        restaurantLocation: {
-          lat: 20.6952266,
-          lng: 83.488972
-        }
-      });
-      console.log('✅ Default delivery settings created');
-    }
-    
-    console.log('✅ Delivery settings loaded');
-    res.json({
-      success: true,
-      data: settings
-    });
-  } catch (error) {
-    console.error('❌ Error fetching delivery settings:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching delivery settings'
-    });
-  }
-});
+router.get('/delivery-settings', deliverySettingsController.getDeliverySettings);
 
 // Update delivery settings
-router.put('/delivery-settings', async (req, res) => {
-  try {
-    console.log('✏️ Updating delivery settings:', req.body);
-    
-    const {
-      maxDeliveryRadius,
-      baseDeliveryCharge,
-      additionalChargePerKm,
-      freeDeliveryWithin5kmThreshold,
-      freeDeliveryUpto10kmThreshold,
-      platformFeePercent,
-      gstPercent,
-      restaurantLat,
-      restaurantLng
-    } = req.body;
-    
-    // Validate input
-    if (!maxDeliveryRadius || maxDeliveryRadius <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Maximum delivery radius is required'
-      });
-    }
-    
-    if (maxDeliveryRadius > 50) {
-      return res.status(400).json({
-        success: false,
-        message: 'Maximum delivery radius cannot exceed 50km'
-      });
-    }
-    
-    let settings = await DeliverySettings.findOne();
-    
-    if (!settings) {
-      // Create new settings
-      settings = await DeliverySettings.create({
-        maxDeliveryRadius,
-        baseDeliveryCharge: baseDeliveryCharge || 20,
-        additionalChargePerKm: additionalChargePerKm || 10,
-        freeDeliveryWithin5kmThreshold: freeDeliveryWithin5kmThreshold || 999,
-        freeDeliveryUpto10kmThreshold: freeDeliveryUpto10kmThreshold || 1499,
-        platformFeePercent: platformFeePercent || 3,
-        gstPercent: gstPercent || 5,
-        restaurantLocation: {
-          lat: restaurantLat || 20.6952266,
-          lng: restaurantLng || 83.488972
-        },
-        updatedAt: new Date()
-      });
-      console.log('✅ New delivery settings created');
-    } else {
-      // Update existing settings
-      settings.maxDeliveryRadius = maxDeliveryRadius;
-      settings.baseDeliveryCharge = baseDeliveryCharge || settings.baseDeliveryCharge;
-      settings.additionalChargePerKm = additionalChargePerKm || settings.additionalChargePerKm;
-      settings.freeDeliveryWithin5kmThreshold = freeDeliveryWithin5kmThreshold || settings.freeDeliveryWithin5kmThreshold;
-      settings.freeDeliveryUpto10kmThreshold = freeDeliveryUpto10kmThreshold || settings.freeDeliveryUpto10kmThreshold;
-      settings.platformFeePercent = platformFeePercent || settings.platformFeePercent;
-      settings.gstPercent = gstPercent || settings.gstPercent;
-      settings.restaurantLocation = {
-        lat: restaurantLat || settings.restaurantLocation.lat,
-        lng: restaurantLng || settings.restaurantLocation.lng
-      };
-      settings.updatedAt = new Date();
-      
-      await settings.save();
-      console.log('✅ Delivery settings updated');
-    }
-    
-    res.json({
-      success: true,
-      message: 'Delivery settings updated successfully',
-      data: settings
-    });
-  } catch (error) {
-    console.error('❌ Error updating delivery settings:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error updating delivery settings'
-    });
-  }
-});
+router.put('/delivery-settings', deliverySettingsController.updateDeliverySettings);
 
 // Reset delivery settings to defaults
-router.post('/delivery-settings/reset', async (req, res) => {
-  try {
-    console.log('🔄 Resetting delivery settings to defaults');
-    
-    let settings = await DeliverySettings.findOne();
-    
-    const defaultSettings = {
-      maxDeliveryRadius: 10,
-      baseDeliveryCharge: 20,
-      additionalChargePerKm: 10,
-      freeDeliveryWithin5kmThreshold: 999,
-      freeDeliveryUpto10kmThreshold: 1499,
-      platformFeePercent: 3,
-      gstPercent: 5,
-      restaurantLocation: {
-        lat: 20.6952266,
-        lng: 83.488972
-      },
-      updatedAt: new Date()
-    };
-    
-    if (!settings) {
-      settings = await DeliverySettings.create(defaultSettings);
-      console.log('✅ Default delivery settings created');
-    } else {
-      Object.assign(settings, defaultSettings);
-      await settings.save();
-      console.log('✅ Delivery settings reset to defaults');
-    }
-    
-    res.json({
-      success: true,
-      message: 'Delivery settings reset to defaults',
-      data: settings
-    });
-  } catch (error) {
-    console.error('❌ Error resetting delivery settings:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error resetting delivery settings'
-    });
-  }
-});
+router.post('/delivery-settings/reset', deliverySettingsController.resetDeliverySettings);
 
 // ==================== USERS MANAGEMENT ====================
 // Get all users
