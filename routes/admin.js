@@ -1,45 +1,3 @@
-// routes/admin.js
-const express = require('express');
-const router = express.Router();
-
-router.get('/delivery-settings', async (req, res) => {
-  const DeliverySettings = require('../models/DeliverySettings');
-  const settings = await DeliverySettings.findOne() || {};
-  res.json({
-    success: true,
-    data: settings
-  });
-});
-
-
-    } catch (err) {
-        console.error('Delivery settings GET error:', err);
-        res.status(500).json({ success:false });
-    }
-});
-
-// UPDATE delivery settings
-router.put('/delivery-settings', async (req, res) => {
-    try {
-        const data = req.body;
-
-        const settings = await DeliverySettings.findOneAndUpdate(
-            {},
-            data,
-            { upsert:true, new:true }
-        );
-
-        res.json({
-            success:true,
-            data:settings
-        });
-
-    } catch (err) {
-        console.error('Delivery settings PUT error:', err);
-        res.status(500).json({ success:false });
-    }
-});
-
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
@@ -48,7 +6,7 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
-const deliverySettingsController = require('../controllers/deliverySettingsController');
+const DeliverySettings = require('../models/DeliverySettings');
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -777,9 +735,42 @@ router.get('/delivery-agents/available', async (req, res) => {
   }
 });
 
-// ================= DELIVERY SETTINGS =================
+// ==================== DELIVERY SETTINGS ====================
+// GET delivery settings
+router.get('/delivery-settings', async (req, res) => {
+  try {
+    let settings = await DeliverySettings.findOne();
+    if (!settings) {
+      settings = {};
+    }
+    res.json({
+      success: true,
+      data: settings
+    });
+  } catch (err) {
+    console.error('Delivery settings GET error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
-
+// UPDATE delivery settings
+router.put('/delivery-settings', async (req, res) => {
+  try {
+    const data = req.body;
+    const settings = await DeliverySettings.findOneAndUpdate(
+      {},
+      data,
+      { upsert: true, new: true }
+    );
+    res.json({
+      success: true,
+      data: settings
+    });
+  } catch (err) {
+    console.error('Delivery settings PUT error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ==================== MENU MANAGEMENT ====================
 // Get all menu items
@@ -918,17 +909,5 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
     });
   }
 });
-
-router.get('/delivery-settings', async (req,res)=>{
-  const DeliverySettings = require('../models/DeliverySettings');
-
-  const settings = await DeliverySettings.findOne() || {};
-
-  res.json({
-    success:true,
-    data:settings
-  });
-});
-
 
 module.exports = router;
