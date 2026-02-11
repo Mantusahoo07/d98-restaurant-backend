@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
+console.log("🧪 orderController exports:", Object.keys(orderController));
+
 const auth = require('../middleware/auth');
 
 // Apply auth middleware to all routes
