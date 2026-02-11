@@ -91,7 +91,7 @@ router.get("/agent/assigned", orderController.getAssignedOrdersForAgent);
 router.put('/:id/status', orderController.updateOrderStatus);
 
 // Verify delivery OTP (for delivery agents)
-router.post('/:id/verify-delivery-otp', orderController.verifyDeliveryOtp);
+router.post('/:id/verify-delivery-otp', orderController.verifyOtp);
 
 // Create Razorpay order
 router.post('/razorpay/create-order', async (req, res) => {
