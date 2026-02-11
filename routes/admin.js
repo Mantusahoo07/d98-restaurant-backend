@@ -123,16 +123,6 @@ router.get('/dashboard', async (req, res) => {
 
 // ==================== DELIVERY SETTINGS MANAGEMENT ====================
 // GET delivery settings
-router.get('/delivery-settings', async (req, res) => {
-  const DeliverySettings = require('../models/DeliverySettings');
-
-  const settings = await DeliverySettings.findOne() || {};
-
-  res.json({
-    success:true,
-    data:settings
-  });
-});
 
 
 
@@ -895,5 +885,17 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
     });
   }
 });
+
+router.get('/delivery-settings', async (req,res)=>{
+  const DeliverySettings = require('../models/DeliverySettings');
+
+  const settings = await DeliverySettings.findOne() || {};
+
+  res.json({
+    success:true,
+    data:settings
+  });
+});
+
 
 module.exports = router;
