@@ -6,7 +6,6 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
-const DeliverySettings = require('../models/DeliverySettings');
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -739,10 +738,8 @@ router.get('/delivery-agents/available', async (req, res) => {
 // GET delivery settings
 router.get('/delivery-settings', async (req, res) => {
   try {
-    let settings = await DeliverySettings.findOne();
-    if (!settings) {
-      settings = {};
-    }
+    const DeliverySettings = require('../models/DeliverySettings');
+    const settings = await DeliverySettings.findOne() || {};
     res.json({
       success: true,
       data: settings
@@ -756,6 +753,7 @@ router.get('/delivery-settings', async (req, res) => {
 // UPDATE delivery settings
 router.put('/delivery-settings', async (req, res) => {
   try {
+    const DeliverySettings = require('../models/DeliverySettings');
     const data = req.body;
     const settings = await DeliverySettings.findOneAndUpdate(
       {},
