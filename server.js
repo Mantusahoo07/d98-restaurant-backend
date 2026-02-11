@@ -63,7 +63,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/razorpay', razorpayRouter);
 app.use('/api/admin', adminRouter);
-app.use('/api/delivery', deliveryRoutes);
+
 
 // CRITICAL: Mount delivery routes - ADD THIS LINE
 app.use('/api/delivery', deliveryRouter);
