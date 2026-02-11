@@ -49,6 +49,17 @@ const isAdmin = async (req, res, next) => {
 router.use(auth);
 router.use(isAdmin);
 
+// Add this at the TOP of your admin.js routes (right after router.use(isAdmin);)
+router.get('/test', (req, res) => {
+  console.log('✅ Admin test route hit by:', req.user.email);
+  res.json({
+    success: true,
+    message: 'Admin API is working',
+    user: req.user.email,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ==================== DASHBOARD STATISTICS ====================
 // Get dashboard stats
 router.get('/dashboard', async (req, res) => {
