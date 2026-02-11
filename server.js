@@ -89,6 +89,12 @@ app.get('/api/config/razorpay-key', (req, res) => {
   });
 });
 
+app.use('/api/admin', (req, res, next) => {
+    console.log(`📞 Admin API Request: ${req.method} ${req.path} from ${req.ip}`);
+    console.log('  User:', req.user ? req.user.email : 'No user');
+    next();
+});
+
 // 404 handler for undefined routes
 app.use('*', (req, res) => {
   console.log(`❌ Route not found: ${req.originalUrl}`);
@@ -109,11 +115,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.use('/api/admin', (req, res, next) => {
-    console.log(`📞 Admin API Request: ${req.method} ${req.path} from ${req.ip}`);
-    console.log('  User:', req.user ? req.user.email : 'No user');
-    next();
-});
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
