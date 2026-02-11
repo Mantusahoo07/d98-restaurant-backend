@@ -122,7 +122,25 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // ==================== DELIVERY SETTINGS MANAGEMENT ====================
-router.get('/delivery-settings', deliverySettingsController.getDeliverySettings);
+// GET delivery settings
+router.get('/delivery-settings', async (req, res) => {
+  try {
+    const settings = await DeliverySettings.getSettings();
+
+    res.json({
+      success: true,
+      data: settings
+    });
+
+  } catch (err) {
+    console.error('Delivery settings error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load delivery settings'
+    });
+  }
+});
+
 
 // Update delivery settings
 router.put('/delivery-settings', deliverySettingsController.updateDeliverySettings);
