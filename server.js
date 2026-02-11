@@ -68,6 +68,10 @@ app.use('/api/delivery', deliveryRoutes);
 // CRITICAL: Mount delivery routes - ADD THIS LINE
 app.use('/api/delivery', deliveryRouter);
 
+console.log('=== ROUTE DEBUG ===');
+console.log('Admin router loaded:', !!adminRouter);
+console.log('DeliverySettings model loaded:', !!require('./models/DeliverySettings'));
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -103,6 +107,12 @@ app.use((err, req, res, next) => {
     message: 'Internal server error',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
+});
+
+app.use('/api/admin', (req, res, next) => {
+    console.log(`📞 Admin API Request: ${req.method} ${req.path} from ${req.ip}`);
+    console.log('  User:', req.user ? req.user.email : 'No user');
+    next();
 });
 
 const PORT = process.env.PORT || 5000;
