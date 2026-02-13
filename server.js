@@ -25,43 +25,62 @@ mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
 });
 
-// Add a public endpoint for delivery settings (no admin required)
+// ==================== PUBLIC ENDPOINTS (NO AUTH) - MUST BE BEFORE AUTH MIDDLEWARE ====================
+
+// Health check - Public
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'D98 Restaurant API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Razorpay key - Public
+app.get('/api/config/razorpay-key', (req, res) => {
+  res.json({
+    success: true,
+    key: process.env.RZP_KEY_ID
+  });
+});
+
+// PUBLIC DELIVERY SETTINGS - NO AUTH REQUIRED
 app.get('/api/delivery-settings/public', async (req, res) => {
     try {
+        console.log('📦 Public delivery settings requested');
         const DeliverySettings = require('./models/DeliverySettings');
         let settings = await DeliverySettings.findOne();
         
         if (!settings) {
-            // Return default settings if none exist
-            settings = {
-                maxDeliveryRadius: 10,
-                baseDeliveryCharge: 20,
-                additionalChargePerKm: 10,
-                freeDeliveryWithin5kmThreshold: 999,
-                freeDeliveryUpto10kmThreshold: 1499,
-                platformFeePercent: 3,
-                gstPercent: 5,
-                restaurantLocation: {
-                    lat: 20.6952266,
-                    lng: 83.488972
-                }
-            };
+            console.log('🆕 No delivery settings found, creating defaults...');
+            settings = await DeliverySettings.create({});
         }
         
+        // Return only the settings needed for customers
         res.json({
             success: true,
-            data: settings
+            data: {
+                maxDeliveryRadius: settings.maxDeliveryRadius,
+                baseDeliveryCharge: settings.baseDeliveryCharge,
+                additionalChargePerKm: settings.additionalChargePerKm,
+                freeDeliveryWithin5kmThreshold: settings.freeDeliveryWithin5kmThreshold,
+                freeDeliveryUpto10kmThreshold: settings.freeDeliveryUpto10kmThreshold,
+                platformFeePercent: settings.platformFeePercent,
+                gstPercent: settings.gstPercent,
+                restaurantLocation: settings.restaurantLocation
+            }
         });
     } catch (error) {
-        console.error('Error fetching public delivery settings:', error);
+        console.error('❌ Error fetching public delivery settings:', error);
         res.status(500).json({
             success: false,
-            message: 'Error fetching delivery settings'
+            message: 'Error fetching delivery settings',
+            error: error.message
         });
     }
 });
 
-// Root Route
+// ==================== ROOT ROUTE ====================
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -72,14 +91,15 @@ app.get('/', (req, res) => {
       orders: '/api/orders',
       users: '/api/users',
       auth: '/api/auth',
-      delivery: '/api/delivery', // ADDED THIS
+      delivery: '/api/delivery',
+      'delivery-settings-public': '/api/delivery-settings/public',
       razorpay: '/api/razorpay/create-order',
       admin: '/api/admin'
     }
   });
 });
 
-// Import ALL route files
+// ==================== IMPORT ROUTE FILES ====================
 const usersRouter = require('./routes/users');
 const menuRouter = require('./routes/menu');
 const ordersRouter = require('./routes/orders');
@@ -87,11 +107,9 @@ const authRouter = require('./routes/auth');
 const categoriesRouter = require('./routes/categories');
 const razorpayRouter = require('./routes/razorpay');
 const adminRouter = require('./routes/admin');
-
-// IMPORTANT: Add delivery routes
 const deliveryRouter = require('./routes/delivery');
 
-// Mount ALL routes
+// ==================== MOUNT ROUTES ====================
 app.use('/api/users', usersRouter);
 app.use('/api/menu', menuRouter);
 app.use('/api/orders', ordersRouter);
@@ -99,39 +117,16 @@ app.use('/api/auth', authRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/razorpay', razorpayRouter);
 app.use('/api/admin', adminRouter);
-
-
-// CRITICAL: Mount delivery routes - ADD THIS LINE
 app.use('/api/delivery', deliveryRouter);
 
+// ==================== DEBUG LOGGING ====================
 console.log('=== ROUTE DEBUG ===');
-console.log('Admin router loaded:', !!adminRouter);
-console.log('DeliverySettings model loaded:', !!require('./models/DeliverySettings'));
+console.log('✅ Admin router loaded');
+console.log('✅ Delivery router loaded');
+console.log('✅ DeliverySettings model loaded');
+console.log('✅ Public delivery settings endpoint registered at: /api/delivery-settings/public');
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'D98 Restaurant API is running',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Razorpay key endpoint
-app.get('/api/config/razorpay-key', (req, res) => {
-  res.json({
-    success: true,
-    key: process.env.RZP_KEY_ID
-  });
-});
-
-app.use('/api/admin', (req, res, next) => {
-    console.log(`📞 Admin API Request: ${req.method} ${req.path} from ${req.ip}`);
-    console.log('  User:', req.user ? req.user.email : 'No user');
-    next();
-});
-
-// 404 handler for undefined routes
+// ==================== 404 HANDLER (MUST BE LAST) ====================
 app.use('*', (req, res) => {
   console.log(`❌ Route not found: ${req.originalUrl}`);
   res.status(404).json({
@@ -141,7 +136,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Error handler
+// ==================== ERROR HANDLER ====================
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err);
   res.status(500).json({
@@ -151,11 +146,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-
-
+// ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📞 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📦 Delivery settings (public): http://localhost:${PORT}/api/delivery-settings/public`);
   console.log(`🚚 Delivery API: http://localhost:${PORT}/api/delivery/profile`);
 });
