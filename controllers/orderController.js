@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Menu = require('../models/Menu');
 const Razorpay = require('razorpay');
+const { createNotification } = require('../routes/notifications'); // Add this line
 
 // Initialize Razorpay - FIXED: No initialization at bottom
 let razorpayInstance = null;
@@ -76,6 +77,22 @@ exports.createOrder = async (req, res) => {
     });
     
     await order.save();
+    
+    // 🔔 CREATE NOTIFICATION FOR USER
+    try {
+      await createNotification(
+        req.user.uid,
+        '🎉 Order Confirmed!',
+        `Your order #${order.orderId} has been placed successfully. Total: ₹${total.toFixed(2)}`,
+        'order_update',
+        'fa-shopping-bag',
+        { orderId: order._id, status: 'pending' }
+      );
+      console.log('✅ Order confirmation notification sent');
+    } catch (notifError) {
+      console.error('❌ Failed to send notification:', notifError);
+      // Don't fail the order if notification fails
+    }
     
     res.status(201).json({
       success: true,
@@ -165,6 +182,55 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
     
+    // 🔔 CREATE NOTIFICATION FOR USER
+    try {
+      let title = '📦 Order Update';
+      let icon = 'fa-truck';
+      let message = '';
+      
+      switch(status) {
+        case 'confirmed':
+          title = '✅ Order Confirmed';
+          message = `Your order #${order.orderId} has been confirmed. We'll start preparing soon!`;
+          icon = 'fa-check-circle';
+          break;
+        case 'preparing':
+          title = '👨‍🍳 Preparing Your Order';
+          message = `Great news! We're preparing your order #${order.orderId}.`;
+          icon = 'fa-utensils';
+          break;
+        case 'out_for_delivery':
+          title = '🛵 Out for Delivery';
+          message = `Your order #${order.orderId} is out for delivery! Delivery OTP: ${order.deliveryOtp}`;
+          icon = 'fa-motorcycle';
+          break;
+        case 'delivered':
+          title = '🎉 Order Delivered';
+          message = `Your order #${order.orderId} has been delivered. Enjoy your meal!`;
+          icon = 'fa-check-circle';
+          break;
+        case 'cancelled':
+          title = '❌ Order Cancelled';
+          message = `Your order #${order.orderId} has been cancelled.`;
+          icon = 'fa-times-circle';
+          break;
+        default:
+          message = `Your order #${order.orderId} status is now: ${status}`;
+      }
+      
+      await createNotification(
+        order.userId,
+        title,
+        message,
+        'order_update',
+        icon,
+        { orderId: order._id, status: status }
+      );
+      console.log(`✅ Status update notification sent for order ${order.orderId}`);
+    } catch (notifError) {
+      console.error('❌ Failed to send status update notification:', notifError);
+    }
+    
     res.json({
       success: true,
       data: order
@@ -206,6 +272,20 @@ exports.verifyOtp = async (req, res) => {
     order.status = 'delivered';
     order.deliveredAt = new Date();
     await order.save();
+    
+    // 🔔 CREATE DELIVERY NOTIFICATION
+    try {
+      await createNotification(
+        order.userId,
+        '🎊 Order Delivered Successfully!',
+        `Your order #${order.orderId} has been delivered. Hope you enjoy your meal!`,
+        'order_update',
+        'fa-check-circle',
+        { orderId: order._id, status: 'delivered' }
+      );
+    } catch (notifError) {
+      console.error('❌ Failed to send delivery notification:', notifError);
+    }
     
     res.json({
       success: true,
@@ -345,6 +425,20 @@ exports.updatePayment = async (req, res) => {
       });
     }
 
+    // 🔔 NOTIFICATION FOR PAYMENT SUCCESS
+    try {
+      await createNotification(
+        order.userId,
+        '💳 Payment Successful',
+        `Payment of ₹${order.total.toFixed(2)} for order #${order.orderId} was successful.`,
+        'order_update',
+        'fa-credit-card',
+        { orderId: order._id, status: 'confirmed' }
+      );
+    } catch (notifError) {
+      console.error('❌ Failed to send payment notification:', notifError);
+    }
+
     res.json({
       success: true,
       data: order
@@ -418,6 +512,20 @@ exports.verifyAndUpdatePayment = async (req, res) => {
     order.status = 'confirmed';
     
     await order.save();
+
+    // 🔔 NOTIFICATION FOR PAYMENT VERIFICATION
+    try {
+      await createNotification(
+        order.userId,
+        '💳 Payment Verified',
+        `Your payment of ₹${order.total.toFixed(2)} for order #${order.orderId} has been verified.`,
+        'order_update',
+        'fa-check-circle',
+        { orderId: order._id, status: 'confirmed' }
+      );
+    } catch (notifError) {
+      console.error('❌ Failed to send payment verification notification:', notifError);
+    }
 
     console.log('✅ Payment verified and order updated successfully');
     
