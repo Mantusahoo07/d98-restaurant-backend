@@ -109,7 +109,6 @@ const razorpayRouter = require('./routes/razorpay');
 const adminRouter = require('./routes/admin');
 const deliveryRouter = require('./routes/delivery');
 const restaurantSettingsController = require('./controllers/restaurantSettingsController');
-const notificationsRouter = require('./routes/notifications');
 
 // ==================== MOUNT ROUTES ====================
 app.use('/api/users', usersRouter);
@@ -121,8 +120,6 @@ app.use('/api/razorpay', razorpayRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/delivery', deliveryRouter);
 app.get('/api/restaurant-status', restaurantSettingsController.getRestaurantStatus);
-app.use('/api/users/notifications', notificationsRouter);
-
 
 // ==================== DEBUG LOGGING ====================
 console.log('=== ROUTE DEBUG ===');
