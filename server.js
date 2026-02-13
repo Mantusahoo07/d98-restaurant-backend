@@ -25,6 +25,42 @@ mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
 });
 
+// Add a public endpoint for delivery settings (no admin required)
+app.get('/api/delivery-settings/public', async (req, res) => {
+    try {
+        const DeliverySettings = require('./models/DeliverySettings');
+        let settings = await DeliverySettings.findOne();
+        
+        if (!settings) {
+            // Return default settings if none exist
+            settings = {
+                maxDeliveryRadius: 10,
+                baseDeliveryCharge: 20,
+                additionalChargePerKm: 10,
+                freeDeliveryWithin5kmThreshold: 999,
+                freeDeliveryUpto10kmThreshold: 1499,
+                platformFeePercent: 3,
+                gstPercent: 5,
+                restaurantLocation: {
+                    lat: 20.6952266,
+                    lng: 83.488972
+                }
+            };
+        }
+        
+        res.json({
+            success: true,
+            data: settings
+        });
+    } catch (error) {
+        console.error('Error fetching public delivery settings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching delivery settings'
+        });
+    }
+});
+
 // Root Route
 app.get('/', (req, res) => {
   res.json({
