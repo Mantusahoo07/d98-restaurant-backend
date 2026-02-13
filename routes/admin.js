@@ -58,6 +58,18 @@ router.get('/test', (req, res) => {
   });
 });
 
+// ==================== RESTAURANT SETTINGS (ADMIN) ====================
+const restaurantSettingsController = require('../controllers/restaurantSettingsController');
+
+// Get restaurant settings
+router.get('/restaurant-settings', restaurantSettingsController.getRestaurantSettings);
+
+// Update restaurant settings
+router.put('/restaurant-settings', restaurantSettingsController.updateRestaurantSettings);
+
+// Reset restaurant settings
+router.post('/restaurant-settings/reset', restaurantSettingsController.resetRestaurantSettings);
+
 // ==================== DASHBOARD STATISTICS ====================
 // Get dashboard stats
 router.get('/dashboard', async (req, res) => {
