@@ -405,9 +405,10 @@ router.post('/categories', async (req, res) => {
 });
 
 // Update category
+// In your backend admin.js, the route should look like this:
 router.put('/categories/:id', async (req, res) => {
   try {
-    const { name, enabled } = req.body;
+    const { name, description, image, icon, displayOrder, enabled } = req.body;
     
     const category = await Category.findById(req.params.id);
     
@@ -418,26 +419,13 @@ router.put('/categories/:id', async (req, res) => {
       });
     }
     
-    if (name && name.trim() !== '') {
-      // Check if new name already exists (excluding current category)
-      const existingCategory = await Category.findOne({
-        name: { $regex: new RegExp(`^${name}$`, 'i') },
-        _id: { $ne: req.params.id }
-      });
-      
-      if (existingCategory) {
-        return res.status(400).json({
-          success: false,
-          message: 'Category name already exists'
-        });
-      }
-      
-      category.name = name.trim();
-    }
-    
-    if (typeof enabled !== 'undefined') {
-      category.enabled = enabled;
-    }
+    // Update fields
+    if (name) category.name = name;
+    if (description !== undefined) category.description = description;
+    if (image !== undefined) category.image = image;
+    if (icon !== undefined) category.icon = icon;
+    if (displayOrder !== undefined) category.displayOrder = displayOrder;
+    if (typeof enabled !== 'undefined') category.enabled = enabled;
     
     await category.save();
     
