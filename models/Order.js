@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 
+// models/Order.js - Update the orderItemSchema
 const orderItemSchema = new mongoose.Schema({
   menuItem: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Menu',
-    required: true
+    required: false  // Changed from true to false
   },
   quantity: {
     type: Number,
@@ -15,7 +16,10 @@ const orderItemSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  name: String
+  name: {
+    type: String,
+    required: true  // Make sure name is required
+  }
 });
 
 const orderSchema = new mongoose.Schema({
