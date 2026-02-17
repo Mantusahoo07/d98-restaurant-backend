@@ -22,70 +22,115 @@ const getRazorpayInstance = () => {
 };
 
 // Create new order
+// controllers/orderController.js - Updated createOrder function
+
+// Create new order
 exports.createOrder = async (req, res) => {
   try {
-    const { items, address, paymentMethod, customerInfo } = req.body;
+    console.log('📦 Creating order with data:', JSON.stringify(req.body, null, 2));
     
-    // Calculate totals
-    let subtotal = 0;
-    const orderItems = [];
+    const { items, address, paymentMethod, customerInfo, orderId, deliveryOtp, total, subtotal, deliveryCharge, platformFee, gst, paymentId, razorpayOrderId, razorpaySignature, paymentStatus, status } = req.body;
+    
+    // If items are already fully populated with names and prices, use them directly
+    let orderItems = [];
+    let calculatedSubtotal = 0;
     
     for (const item of items) {
-      const menuItem = await Menu.findById(item.menuItemId);
-      if (!menuItem) {
-        return res.status(400).json({
-          success: false,
-          message: `Menu item not found: ${item.menuItemId}`
+      // Check if the item has all required fields
+      if (item.name && item.price) {
+        // Use the item data directly from the request
+        orderItems.push({
+          menuItem: item.menuItemId || null, // This might be null if not in DB
+          quantity: item.quantity,
+          price: item.price,
+          name: item.name
         });
+        calculatedSubtotal += item.price * item.quantity;
+      } else {
+        // Try to fetch from database as fallback
+        try {
+          const menuItem = await Menu.findById(item.menuItemId);
+          if (menuItem) {
+            orderItems.push({
+              menuItem: menuItem._id,
+              quantity: item.quantity,
+              price: menuItem.price,
+              name: menuItem.name
+            });
+            calculatedSubtotal += menuItem.price * item.quantity;
+          } else {
+            // If menu item not found but we have basic data, create with what we have
+            orderItems.push({
+              menuItem: null,
+              quantity: item.quantity,
+              price: item.price || 0,
+              name: item.name || 'Unknown Item'
+            });
+            calculatedSubtotal += (item.price || 0) * item.quantity;
+          }
+        } catch (dbError) {
+          console.error('Error fetching menu item:', dbError);
+          // Still create the order with provided data
+          orderItems.push({
+            menuItem: null,
+            quantity: item.quantity,
+            price: item.price || 0,
+            name: item.name || 'Unknown Item'
+          });
+          calculatedSubtotal += (item.price || 0) * item.quantity;
+        }
       }
-      
-      const itemTotal = menuItem.price * item.quantity;
-      subtotal += itemTotal;
-      
-      orderItems.push({
-        menuItem: menuItem._id,
-        quantity: item.quantity,
-        price: menuItem.price,
-        name: menuItem.name
-      });
     }
     
-    const deliveryCharge = calculateDeliveryCharge(address);
-    const platformFee = subtotal * 0.03;
-    const gst = subtotal * 0.05;
-    const total = subtotal + deliveryCharge + platformFee + gst;
+    // Use provided totals or calculate
+    const finalSubtotal = subtotal || calculatedSubtotal;
+    const finalDeliveryCharge = deliveryCharge || calculateDeliveryCharge(address);
+    const finalPlatformFee = platformFee || (finalSubtotal * 0.03);
+    const finalGst = gst || (finalSubtotal * 0.05);
+    const finalTotal = total || (finalSubtotal + finalDeliveryCharge + finalPlatformFee + finalGst);
     
-    // Generate OTP
-    const deliveryOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    // Generate OTP if not provided
+    const finalDeliveryOtp = deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString();
     
+    // Create the order
     const order = new Order({
+      orderId: orderId || ('D98' + Date.now().toString().slice(-8)),
       userId: req.user.uid,
-      customerName: customerInfo.name,
-      customerEmail: customerInfo.email,
-      customerPhone: customerInfo.phone,
+      customerName: customerInfo?.name || req.body.customerName || 'Customer',
+      customerEmail: customerInfo?.email || req.body.customerEmail || req.user.email,
+      customerPhone: customerInfo?.phone || req.body.customerPhone || '',
       items: orderItems,
-      subtotal,
-      deliveryCharge,
-      platformFee,
-      gst,
-      total,
-      address,
-      paymentMethod,
-      deliveryOtp,
-      estimatedDelivery: new Date(Date.now() + 45 * 60000) // 45 minutes from now
+      subtotal: finalSubtotal,
+      deliveryCharge: finalDeliveryCharge,
+      platformFee: finalPlatformFee,
+      gst: finalGst,
+      total: finalTotal,
+      address: address || req.body.address,
+      paymentMethod: paymentMethod || 'online',
+      paymentId: paymentId || req.body.paymentId,
+      razorpayOrderId: razorpayOrderId || req.body.razorpayOrderId,
+      razorpaySignature: razorpaySignature || req.body.razorpaySignature,
+      paymentStatus: paymentStatus || 'paid',
+      status: status || 'confirmed',
+      deliveryOtp: finalDeliveryOtp,
+      estimatedDelivery: new Date(Date.now() + 45 * 60000)
     });
     
     await order.save();
+    
+    console.log('✅ Order created successfully:', order._id);
     
     res.status(201).json({
       success: true,
       data: order
     });
   } catch (error) {
+    console.error('❌ Error creating order:', error);
     res.status(400).json({
       success: false,
       message: 'Error creating order',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
