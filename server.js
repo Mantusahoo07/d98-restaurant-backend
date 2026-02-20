@@ -80,6 +80,45 @@ app.get('/api/delivery-settings/public', async (req, res) => {
     }
 });
 
+// Add this endpoint to handle user linking
+app.post('/api/users/link-account', auth, async (req, res) => {
+  try {
+    const User = require('./models/User');
+    
+    console.log('🔗 Linking user account for:', req.user.email);
+    
+    // Find user by email
+    let user = await User.findOne({ email: req.user.email });
+    
+    if (user) {
+      // Update with new firebaseUid
+      user.firebaseUid = req.user.uid;
+      await user.save();
+      
+      console.log('✅ User linked successfully');
+      return res.json({
+        success: true,
+        data: user,
+        message: 'Account linked successfully'
+      });
+    }
+    
+    // If no user found, return 404
+    res.status(404).json({
+      success: false,
+      message: 'No user found with this email'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error linking account:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error linking account',
+      error: error.message
+    });
+  }
+});
+
 // ==================== ROOT ROUTE ====================
 app.get('/', (req, res) => {
   res.json({
