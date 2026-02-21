@@ -119,6 +119,43 @@ app.post('/api/users/link-account', auth, async (req, res) => {
   }
 });
 
+// Add this temporary debug endpoint
+app.get('/api/debug-routes', (req, res) => {
+  const routes = [];
+  
+  // Get all registered routes from Express app
+  app._router.stack.forEach(middleware => {
+    if (middleware.route) {
+      // Routes registered directly
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods)
+      });
+    } else if (middleware.name === 'router') {
+      // Routes registered via router
+      middleware.handle.stack.forEach(handler => {
+        if (handler.route) {
+          const path = middleware.regexp.source
+            .replace('\\/?(?=\\/|$)', '')
+            .replace(/\\\//g, '/')
+            .replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':param');
+          
+          routes.push({
+            path: path + handler.route.path,
+            methods: Object.keys(handler.route.methods)
+          });
+        }
+      });
+    }
+  });
+  
+  res.json({
+    success: true,
+    routes: routes,
+    userControllerLoaded: typeof userController !== 'undefined'
+  });
+});
+
 // ==================== ROOT ROUTE ====================
 app.get('/', (req, res) => {
   res.json({
