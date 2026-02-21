@@ -35,6 +35,8 @@ const userSchema = new mongoose.Schema({
     unique: true
   },
   phone: String,
+  photoURL: String,  // Add this
+  coverURL: String,  // Add this
   addresses: [addressSchema],
   preferences: {
     notifications: {
