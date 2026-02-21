@@ -10,13 +10,13 @@ router.use(auth);
 router.post('/', userController.createUserProfile);          // POST /api/users - Create profile
 router.get('/profile', userController.getUserProfile);       // GET /api/users/profile - Get profile
 router.put('/profile', userController.updateUserProfile);    // PUT /api/users/profile - Update profile
+
 // Profile image routes
 router.post('/profile/image', userController.updateProfileImage);
 router.delete('/profile/image', userController.removeProfileImage);
 
 // Address routes
-// IMPORTANT: Specific routes must come BEFORE parameterized routes
-router.get('/addresses/check-duplicate', userController.checkDuplicateAddress);  // ADD THIS LINE
+router.get('/addresses/check-duplicate', userController.checkDuplicateAddress);
 router.get('/addresses', userController.getAllAddresses);           // GET /api/users/addresses - Get all addresses
 router.post('/addresses', userController.addAddress);               // POST /api/users/addresses - Add address
 router.put('/addresses/:addressId', userController.updateAddress);  // PUT /api/users/addresses/:id - Update address
