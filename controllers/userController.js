@@ -561,17 +561,25 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// Update profile with image URL
+// Update profile with image (Base64)
 exports.updateProfileImage = async (req, res) => {
   try {
     console.log('📸 Updating profile image for user:', req.user.uid);
     
-    const { imageUrl } = req.body;
+    const { imageBase64 } = req.body;
     
-    if (!imageUrl) {
+    if (!imageBase64) {
       return res.status(400).json({
         success: false,
-        message: 'Image URL is required'
+        message: 'Image data is required'
+      });
+    }
+    
+    // Validate Base64 string (optional)
+    if (!imageBase64.startsWith('data:image')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid image format'
       });
     }
     
@@ -594,7 +602,7 @@ exports.updateProfileImage = async (req, res) => {
     }
     
     // Update profile image
-    user.profileImage = imageUrl;
+    user.profileImage = imageBase64;
     await user.save();
     
     console.log('✅ Profile image updated successfully');
