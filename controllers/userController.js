@@ -513,4 +513,51 @@ exports.checkDuplicateAddress = async (req, res) => {
       error: error.message
     });
   }
+  // ==================== ADMIN FUNCTIONS ====================
+
+// Get user by ID (admin only)
+exports.getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-addresses');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('❌ Error fetching user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user',
+      error: error.message
+    });
+  }
+};
+
+// Get all users (admin only)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-addresses');
+    
+    res.json({
+      success: true,
+      data: users,
+      count: users.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching users',
+      error: error.message
+    });
+  }
+};
 };
