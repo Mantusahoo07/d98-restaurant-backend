@@ -16,6 +16,7 @@ router.get('/addresses', userController.getAllAddresses);           // GET /api/
 router.post('/addresses', userController.addAddress);               // POST /api/users/addresses - Add address
 router.put('/addresses/:addressId', userController.updateAddress);  // PUT /api/users/addresses/:id - Update address
 router.delete('/addresses/:addressId', userController.deleteAddress); // DELETE /api/users/addresses/:id - Delete address
+router.get('/addresses/check-duplicate', userController.checkDuplicateAddress);
 
 // Admin routes (optional)
 router.get('/:id', userController.getUserById);        // GET /api/users/:id - Get user by ID (admin)
