@@ -560,3 +560,100 @@ exports.getAllUsers = async (req, res) => {
     });
   }
 };
+
+// Update profile with image URL
+exports.updateProfileImage = async (req, res) => {
+  try {
+    console.log('📸 Updating profile image for user:', req.user.uid);
+    
+    const { imageUrl } = req.body;
+    
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image URL is required'
+      });
+    }
+    
+    // Find user by firebaseUid
+    let user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    // If not found, try by email
+    if (!user && req.user.email) {
+      user = await User.findOne({ email: req.user.email });
+      if (user) {
+        user.firebaseUid = req.user.uid;
+      }
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Update profile image
+    user.profileImage = imageUrl;
+    await user.save();
+    
+    console.log('✅ Profile image updated successfully');
+    
+    res.json({
+      success: true,
+      data: user,
+      message: 'Profile image updated successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating profile image:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile image',
+      error: error.message
+    });
+  }
+};
+
+// Remove profile image
+exports.removeProfileImage = async (req, res) => {
+  try {
+    console.log('🗑️ Removing profile image for user:', req.user.uid);
+    
+    let user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user && req.user.email) {
+      user = await User.findOne({ email: req.user.email });
+      if (user) {
+        user.firebaseUid = req.user.uid;
+      }
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Remove profile image
+    user.profileImage = null;
+    await user.save();
+    
+    console.log('✅ Profile image removed successfully');
+    
+    res.json({
+      success: true,
+      data: user,
+      message: 'Profile image removed successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error removing profile image:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error removing profile image',
+      error: error.message
+    });
+  }
+};
