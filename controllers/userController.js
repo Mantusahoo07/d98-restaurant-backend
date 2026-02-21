@@ -562,6 +562,7 @@ exports.getAllUsers = async (req, res) => {
 };
 
 // Update profile with image (Base64)
+// Update profile with image (Base64)
 exports.updateProfileImage = async (req, res) => {
   try {
     console.log('📸 Updating profile image for user:', req.user.uid);
@@ -575,7 +576,7 @@ exports.updateProfileImage = async (req, res) => {
       });
     }
     
-    // Validate Base64 string (optional)
+    // Validate Base64 string
     if (!imageBase64.startsWith('data:image')) {
       return res.status(400).json({
         success: false,
