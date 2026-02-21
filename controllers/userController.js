@@ -274,10 +274,23 @@ exports.checkDuplicateAddress = async (req, res) => {
       });
     }
 
+    // Parse coordinates to numbers
+    const queryLat = parseFloat(lat);
+    const queryLng = parseFloat(lng);
+
     // Find addresses within approximately 100 meters (0.001 degrees)
     const duplicateAddress = user.addresses.find(addr => {
-      const latDiff = Math.abs(parseFloat(addr.lat) - parseFloat(lat));
-      const lngDiff = Math.abs(parseFloat(addr.lng) - parseFloat(lng));
+      // Check if address has coordinates
+      if (!addr.lat || !addr.lng) return false;
+      
+      const addrLat = parseFloat(addr.lat);
+      const addrLng = parseFloat(addr.lng);
+      
+      // Calculate difference
+      const latDiff = Math.abs(addrLat - queryLat);
+      const lngDiff = Math.abs(addrLng - queryLng);
+      
+      // Within ~100 meters (0.001 degrees ≈ 111 meters at equator)
       return latDiff < 0.001 && lngDiff < 0.001;
     });
 
