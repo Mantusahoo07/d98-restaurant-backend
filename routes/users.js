@@ -10,6 +10,9 @@ router.use(auth);
 router.post('/', userController.createUserProfile);          // POST /api/users - Create profile
 router.get('/profile', userController.getUserProfile);       // GET /api/users/profile - Get profile
 router.put('/profile', userController.updateUserProfile);    // PUT /api/users/profile - Update profile
+// Profile image routes
+router.post('/profile/image', userController.updateProfileImage);
+router.delete('/profile/image', userController.removeProfileImage);
 
 // Address routes
 // IMPORTANT: Specific routes must come BEFORE parameterized routes
