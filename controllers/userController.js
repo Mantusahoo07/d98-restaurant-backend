@@ -1,3 +1,5 @@
+console.log('✅ userController.js loaded - checkDuplicateAddress function exists:', 
+  typeof exports.checkDuplicateAddress !== 'undefined' ? 'YES' : 'NO');
 const User = require('../models/User');
 
 // Get user profile
