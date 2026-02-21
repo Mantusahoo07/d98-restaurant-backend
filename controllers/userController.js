@@ -251,3 +251,58 @@ exports.updateUserProfile = async (req, res) => {
     });
   }
 };
+// Add this new function to check for duplicate addresses
+exports.checkDuplicateAddress = async (req, res) => {
+  try {
+    console.log('📍 Checking for duplicate address for user:', req.user.uid);
+    
+    const { lat, lng } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    const user = await User.findOne({ firebaseUid: req.user.uid });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Find addresses within approximately 100 meters (0.001 degrees)
+    const duplicateAddress = user.addresses.find(addr => {
+      const latDiff = Math.abs(parseFloat(addr.lat) - parseFloat(lat));
+      const lngDiff = Math.abs(parseFloat(addr.lng) - parseFloat(lng));
+      return latDiff < 0.001 && lngDiff < 0.001;
+    });
+
+    if (duplicateAddress) {
+      console.log('✅ Found duplicate address:', duplicateAddress.name);
+      return res.json({
+        success: true,
+        isDuplicate: true,
+        address: duplicateAddress,
+        message: 'Address already exists'
+      });
+    }
+
+    console.log('✅ No duplicate address found');
+    res.json({
+      success: true,
+      isDuplicate: false
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking duplicate address:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking duplicate address',
+      error: error.message
+    });
+  }
+};
