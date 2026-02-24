@@ -5,7 +5,7 @@ const orderItemSchema = new mongoose.Schema({
   menuItem: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Menu',
-    required: false  // Changed from true to false
+    required: false
   },
   quantity: {
     type: Number,
@@ -18,7 +18,32 @@ const orderItemSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true  // Make sure name is required
+    required: true
+  },
+  instruction: {
+    type: String,
+    default: ''
+  },
+  // Add rejected status for individual items
+  rejected: {
+    type: Boolean,
+    default: false
+  },
+  rejectionReason: {
+    type: String,
+    default: ''
+  },
+  suggestedItem: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Menu'
+  },
+  suggestedItemName: {
+    type: String,
+    default: ''
+  },
+  suggestedItemPrice: {
+    type: Number,
+    default: 0
   }
 });
 
@@ -92,22 +117,47 @@ const orderSchema = new mongoose.Schema({
   
   assignedAt: Date,
   
-
   paymentId: String,
   razorpayOrderId: String,
   razorpaySignature: String,
-  // ========== ADD PAYMENT STATUS ==========
+  
   paymentStatus: {
     type: String,
     enum: ['pending', 'paid', 'failed', 'refunded'],
     default: 'pending'
   },
-  // ========== END ADDITION ==========
+  
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
+    enum: ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled', 'rejected', 'modification_pending'],
     default: 'pending'
   },
+  
+  // Track if order has been rejected
+  rejectionReason: {
+    type: String,
+    default: ''
+  },
+  
+  // Track rejected items for modification
+  rejectedItems: [{
+    itemId: String,
+    name: String,
+    reason: String,
+    suggestedItem: {
+      menuItemId: String,
+      name: String,
+      price: Number
+    }
+  }],
+  
+  // Flag for modification status
+  modificationStatus: {
+    type: String,
+    enum: ['none', 'pending', 'accepted', 'rejected'],
+    default: 'none'
+  },
+  
   deliveryOtp: {
     type: String,
     required: true
@@ -117,7 +167,10 @@ const orderSchema = new mongoose.Schema({
     default: false
   },
   estimatedDelivery: Date,
-  deliveredAt: Date
+  deliveredAt: Date,
+  
+  // Notes for order
+  notes: String
 }, {
   timestamps: true
 });
