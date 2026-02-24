@@ -26,7 +26,7 @@ exports.createOrder = async (req, res) => {
   try {
     console.log('📦 Creating order with data:', JSON.stringify(req.body, null, 2));
     
-    const { items, address, paymentMethod, customerInfo, orderId, deliveryOtp, total, subtotal, deliveryCharge, platformFee, gst, paymentId, razorpayOrderId, razorpaySignature, paymentStatus, status } = req.body;
+    const { items, address, paymentMethod, customerInfo, orderId, deliveryOtp, total, subtotal, deliveryCharge, platformFee, gst, paymentId, razorpayOrderId, razorpaySignature, paymentStatus } = req.body;
     
     // If items are already fully populated with names and prices, use them directly
     let orderItems = [];
@@ -93,12 +93,10 @@ exports.createOrder = async (req, res) => {
     // Generate OTP if not provided
     const finalDeliveryOtp = deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString();
     
-    // IMPORTANT: Set status based on restaurant status
-    // Default to 'pending' - admin must accept orders
-    let orderStatus = 'pending';
+    // IMPORTANT: Force status to 'pending' - OVERRIDE any status sent from frontend
+    const orderStatus = 'pending';
     
-    // Check restaurant status (this would need to be implemented)
-    // For now, always set to pending
+    console.log(`📝 Setting order status to: ${orderStatus} (forced - overriding frontend)`);
     
     // Create the order
     const order = new Order({
@@ -119,8 +117,8 @@ exports.createOrder = async (req, res) => {
       razorpayOrderId: razorpayOrderId || req.body.razorpayOrderId,
       razorpaySignature: razorpaySignature || req.body.razorpaySignature,
       paymentStatus: paymentStatus || 'paid',
-      // Use 'pending' as default, only set to 'confirmed' if explicitly requested
-      status: status || 'pending',
+      // FORCE STATUS TO PENDING - ignore any status from frontend
+      status: 'pending',
       deliveryOtp: finalDeliveryOtp,
       estimatedDelivery: new Date(Date.now() + 45 * 60000)
     });
@@ -385,7 +383,7 @@ exports.updatePayment = async (req, res) => {
           paymentId,
           razorpayOrderId,
           razorpaySignature,
-          status: status || 'pending', // Change to pending by default
+          status: 'pending', // Force to pending, ignore any status from frontend
           paymentStatus: paymentStatus || 'paid'
         }
       },
