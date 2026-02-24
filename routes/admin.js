@@ -331,6 +331,70 @@ router.patch('/orders/:id/status', async (req, res) => {
   }
 });
 
+// Reject order with suggestions
+router.patch('/orders/:id/reject', async (req, res) => {
+  try {
+    const { rejectedItems, notes } = req.body;
+    
+    const order = await Order.findById(req.params.id);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    
+    // Update order status to rejected
+    order.status = 'rejected';
+    order.notes = notes || 'Order rejected';
+    
+    // Store rejected items with suggestions
+    if (rejectedItems && rejectedItems.length > 0) {
+      order.rejectedItems = rejectedItems;
+    }
+    
+    // Update individual items in the order
+    if (rejectedItems && rejectedItems.length > 0) {
+      rejectedItems.forEach(rejected => {
+        const itemIndex = order.items.findIndex(item => 
+          item.name === rejected.itemName || 
+          item._id.toString() === rejected.itemId
+        );
+        
+        if (itemIndex !== -1) {
+          order.items[itemIndex].rejected = true;
+          order.items[itemIndex].rejectionReason = rejected.reason;
+          
+          if (rejected.suggestedItem) {
+            order.items[itemIndex].suggestedItemName = rejected.suggestedItem.name;
+            order.items[itemIndex].suggestedItemPrice = rejected.suggestedItem.price;
+          }
+        }
+      });
+    }
+    
+    await order.save();
+    
+    const updatedOrder = await Order.findById(order._id)
+      .populate('deliveryAgent', 'name phone')
+      .populate('items.menuItem');
+    
+    res.json({
+      success: true,
+      data: updatedOrder,
+      message: 'Order rejected successfully'
+    });
+  } catch (error) {
+    console.error('Error rejecting order:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error rejecting order',
+      error: error.message
+    });
+  }
+});
+
 // ==================== CATEGORIES MANAGEMENT ====================
 // Get all categories (admin version - includes count of menu items)
 router.get('/categories', async (req, res) => {
@@ -909,68 +973,6 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
-// Reject order with suggestions
-router.patch('/orders/:id/reject', async (req, res) => {
-  try {
-    const { rejectedItems, notes } = req.body;
-    
-    const order = await Order.findById(req.params.id);
-    
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found'
-      });
-    }
-    
-    // Update order status to rejected
-    order.status = 'rejected';
-    order.notes = notes || 'Order rejected';
-    
-    // Store rejected items with suggestions
-    if (rejectedItems && rejectedItems.length > 0) {
-      order.rejectedItems = rejectedItems;
-    }
-    
-    // Update individual items in the order
-    if (rejectedItems && rejectedItems.length > 0) {
-      rejectedItems.forEach(rejected => {
-        const itemIndex = order.items.findIndex(item => 
-          item.name === rejected.itemName || 
-          item._id.toString() === rejected.itemId
-        );
-        
-        if (itemIndex !== -1) {
-          order.items[itemIndex].rejected = true;
-          order.items[itemIndex].rejectionReason = rejected.reason;
-          
-          if (rejected.suggestedItem) {
-            order.items[itemIndex].suggestedItemName = rejected.suggestedItem.name;
-            order.items[itemIndex].suggestedItemPrice = rejected.suggestedItem.price;
-          }
-        }
-      });
-    }
-    
-    await order.save();
-    
-    const updatedOrder = await Order.findById(order._id)
-      .populate('deliveryAgent', 'name phone')
-      .populate('items.menuItem');
-    
-    res.json({
-      success: true,
-      data: updatedOrder,
-      message: 'Order rejected successfully'
-    });
-  } catch (error) {
-    console.error('Error rejecting order:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error rejecting order',
-      error: error.message
-    });
-  }
-});
+
 
 module.exports = router;
