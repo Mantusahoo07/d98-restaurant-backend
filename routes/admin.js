@@ -201,6 +201,7 @@ router.get('/orders', async (req, res) => {
     
     const orders = await Order.find(filter)
       .populate('items.menuItem')
+      .populate('deliveryAgent', 'name phone')
       .sort({ createdAt: -1 });
     
     res.json(orders);
@@ -218,7 +219,8 @@ router.get('/orders', async (req, res) => {
 router.get('/orders/:id', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('items.menuItem');
+      .populate('items.menuItem')
+      .populate('deliveryAgent', 'name phone');
     
     if (!order) {
       return res.status(404).json({
@@ -405,7 +407,6 @@ router.post('/categories', async (req, res) => {
 });
 
 // Update category
-// In your backend admin.js, the route should look like this:
 router.put('/categories/:id', async (req, res) => {
   try {
     const { name, description, image, icon, displayOrder, enabled } = req.body;
