@@ -157,6 +157,52 @@ app.get('/api/debug-routes', (req, res) => {
   });
 });
 
+// ==================== REAL-TIME UPDATES (SSE) ====================
+// Store connected clients for order updates
+let orderUpdateClients = [];
+
+// SSE endpoint for order updates
+app.get('/api/orders/updates', auth, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Connected to order updates' })}\n\n`);
+    
+    // Add client to connected list
+    const clientId = Date.now() + '-' + req.user.uid;
+    const newClient = {
+        id: clientId,
+        userId: req.user.uid,
+        res
+    };
+    orderUpdateClients.push(newClient);
+    
+    // Remove client on connection close
+    req.on('close', () => {
+        orderUpdateClients = orderUpdateClients.filter(client => client.id !== clientId);
+    });
+});
+
+// Function to broadcast order updates to specific user
+const broadcastOrderUpdate = (userId, orderData) => {
+    orderUpdateClients.forEach(client => {
+        if (client.userId === userId) {
+            try {
+                client.res.write(`data: ${JSON.stringify(orderData)}\n\n`);
+            } catch (error) {
+                console.error('Error broadcasting to client:', error);
+            }
+        }
+    });
+};
+
+// ==================== RESTAURANT STATUS SSE ====================
+const restaurantSettingsController = require('./controllers/restaurantSettingsController');
+app.get('/api/restaurant-status/updates', restaurantSettingsController.restaurantStatusSSE);
+
 // ==================== ROOT ROUTE ====================
 app.get('/', (req, res) => {
   res.json({
@@ -171,7 +217,9 @@ app.get('/', (req, res) => {
       delivery: '/api/delivery',
       'delivery-settings-public': '/api/delivery-settings/public',
       razorpay: '/api/razorpay/create-order',
-      admin: '/api/admin'
+      admin: '/api/admin',
+      'order-updates': '/api/orders/updates (SSE - requires auth)',
+      'restaurant-updates': '/api/restaurant-status/updates (SSE)'
     }
   });
 });
@@ -185,7 +233,7 @@ const categoriesRouter = require('./routes/categories');
 const razorpayRouter = require('./routes/razorpay');
 const adminRouter = require('./routes/admin');
 const deliveryRouter = require('./routes/delivery');
-const restaurantSettingsController = require('./controllers/restaurantSettingsController');
+// const restaurantSettingsController = require('./controllers/restaurantSettingsController');
 
 // ==================== MOUNT ROUTES ====================
 app.use('/api/users', usersRouter);
@@ -204,6 +252,8 @@ console.log('✅ Admin router loaded');
 console.log('✅ Delivery router loaded');
 console.log('✅ DeliverySettings model loaded');
 console.log('✅ Public delivery settings endpoint registered at: /api/delivery-settings/public');
+console.log('✅ Order updates SSE endpoint registered at: /api/orders/updates');
+console.log('✅ Restaurant status SSE endpoint registered at: /api/restaurant-status/updates');
 
 // ==================== 404 HANDLER (MUST BE LAST) ====================
 app.use('*', (req, res) => {
@@ -232,4 +282,9 @@ app.listen(PORT, () => {
   console.log(`📞 Health check: http://localhost:${PORT}/api/health`);
   console.log(`📦 Delivery settings (public): http://localhost:${PORT}/api/delivery-settings/public`);
   console.log(`🚚 Delivery API: http://localhost:${PORT}/api/delivery/profile`);
+  console.log(`🔄 Order updates SSE: http://localhost:${PORT}/api/orders/updates`);
+  console.log(`🏪 Restaurant status SSE: http://localhost:${PORT}/api/restaurant-status/updates`);
 });
+
+// Export broadcast function for use in other controllers
+module.exports = { app, broadcastOrderUpdate };
