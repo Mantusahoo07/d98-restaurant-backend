@@ -1,5 +1,112 @@
 const RestaurantSettings = require('../models/RestaurantSettings');
 
+// Store connected clients for real-time updates
+let connectedClients = [];
+
+// Function to broadcast restaurant status to all connected clients
+const broadcastRestaurantStatus = (status) => {
+    connectedClients.forEach(client => {
+        try {
+            client.res.write(`data: ${JSON.stringify(status)}\n\n`);
+        } catch (error) {
+            console.error('Error broadcasting to client:', error);
+        }
+    });
+};
+
+// SSE endpoint for real-time restaurant status
+exports.restaurantStatusSSE = (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Send initial data
+    RestaurantSettings.getSettings().then(settings => {
+        const status = calculateRestaurantStatus(settings);
+        res.write(`data: ${JSON.stringify(status)}\n\n`);
+    });
+    
+    // Add client to connected list
+    const clientId = Date.now();
+    const newClient = {
+        id: clientId,
+        res
+    };
+    connectedClients.push(newClient);
+    
+    // Remove client on connection close
+    req.on('close', () => {
+        connectedClients = connectedClients.filter(client => client.id !== clientId);
+    });
+};
+
+// Helper function to calculate restaurant status
+const calculateRestaurantStatus = (settings) => {
+    const now = new Date();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    let isOpen = false;
+    let nextOpenTime = null;
+    let currentShift = null;
+    
+    if (settings.specialClosing.isClosed) {
+        isOpen = false;
+    } else {
+        if (settings.autoScheduleEnabled) {
+            if (settings.shift1Enabled) {
+                if (currentTime >= settings.shift1Open && currentTime <= settings.shift1Close) {
+                    isOpen = true;
+                    currentShift = 'Shift 1';
+                }
+            }
+            
+            if (!isOpen && settings.shift2Enabled) {
+                if (currentTime >= settings.shift2Open && currentTime <= settings.shift2Close) {
+                    isOpen = true;
+                    currentShift = 'Shift 2';
+                }
+            }
+        } else {
+            isOpen = settings.isOnline;
+        }
+    }
+    
+    if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled) {
+        if (settings.shift1Enabled && currentTime < settings.shift1Open) {
+            nextOpenTime = settings.shift1Open;
+        } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
+            nextOpenTime = settings.shift2Open;
+        } else {
+            if (settings.shift1Enabled) {
+                nextOpenTime = settings.shift1Open;
+            }
+        }
+    }
+    
+    return {
+        isOpen,
+        currentShift,
+        nextOpenTime,
+        isTemporarilyClosed: settings.specialClosing.isClosed,
+        temporaryClosingReason: settings.specialClosing.reason,
+        shifts: {
+            shift1: {
+                enabled: settings.shift1Enabled,
+                open: settings.shift1Open,
+                close: settings.shift1Close
+            },
+            shift2: {
+                enabled: settings.shift2Enabled,
+                open: settings.shift2Open,
+                close: settings.shift2Close
+            }
+        },
+        autoScheduleEnabled: settings.autoScheduleEnabled,
+        lastUpdated: settings.lastUpdatedAt
+    };
+};
+
 // ==================== ADMIN ENDPOINTS (Protected) ====================
 
 // Get restaurant settings for admin
@@ -71,6 +178,10 @@ exports.updateRestaurantSettings = async (req, res) => {
 
         await settings.save();
 
+        // Calculate and broadcast updated status
+        const updatedStatus = calculateRestaurantStatus(settings);
+        broadcastRestaurantStatus(updatedStatus);
+
         res.json({
             success: true,
             message: 'Restaurant settings updated successfully',
@@ -116,6 +227,10 @@ exports.resetRestaurantSettings = async (req, res) => {
 
         await settings.save();
 
+        // Calculate and broadcast updated status
+        const updatedStatus = calculateRestaurantStatus(settings);
+        broadcastRestaurantStatus(updatedStatus);
+
         res.json({
             success: true,
             message: 'Restaurant settings reset to defaults',
@@ -139,81 +254,11 @@ exports.getRestaurantStatus = async (req, res) => {
         console.log('👥 Public fetching restaurant status');
         
         const settings = await RestaurantSettings.getSettings();
-        const now = new Date();
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const status = calculateRestaurantStatus(settings);
         
-        // Calculate if restaurant is currently open
-        let isOpen = false;
-        let nextOpenTime = null;
-        let currentShift = null;
-        
-        // Check if temporarily closed
-        if (settings.specialClosing.isClosed) {
-            isOpen = false;
-        } else {
-            // Check auto-schedule
-            if (settings.autoScheduleEnabled) {
-                // Check Shift 1
-                if (settings.shift1Enabled) {
-                    if (currentTime >= settings.shift1Open && currentTime <= settings.shift1Close) {
-                        isOpen = true;
-                        currentShift = 'Shift 1';
-                    }
-                }
-                
-                // Check Shift 2
-                if (!isOpen && settings.shift2Enabled) {
-                    if (currentTime >= settings.shift2Open && currentTime <= settings.shift2Close) {
-                        isOpen = true;
-                        currentShift = 'Shift 2';
-                    }
-                }
-                
-                // If auto-schedule is disabled, use manual toggle
-            } else {
-                isOpen = settings.isOnline;
-            }
-        }
-        
-        // Calculate next opening time
-        if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled) {
-            // Check next shift today
-            if (settings.shift1Enabled && currentTime < settings.shift1Open) {
-                nextOpenTime = settings.shift1Open;
-            } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
-                nextOpenTime = settings.shift2Open;
-            } else {
-                // Next shift tomorrow
-                if (settings.shift1Enabled) {
-                    nextOpenTime = settings.shift1Open;
-                }
-            }
-        }
-
-        // Return only what customers need
         res.json({
             success: true,
-            data: {
-                isOpen: isOpen,
-                currentShift: currentShift,
-                nextOpenTime: nextOpenTime,
-                isTemporarilyClosed: settings.specialClosing.isClosed,
-                temporaryClosingReason: settings.specialClosing.reason,
-                shifts: {
-                    shift1: {
-                        enabled: settings.shift1Enabled,
-                        open: settings.shift1Open,
-                        close: settings.shift1Close
-                    },
-                    shift2: {
-                        enabled: settings.shift2Enabled,
-                        open: settings.shift2Open,
-                        close: settings.shift2Close
-                    }
-                },
-                autoScheduleEnabled: settings.autoScheduleEnabled,
-                lastUpdated: settings.lastUpdatedAt
-            }
+            data: status
         });
         
     } catch (error) {
