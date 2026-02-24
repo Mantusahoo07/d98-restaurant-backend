@@ -24,7 +24,7 @@ const orderItemSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  // Add rejected status for individual items
+  // Track if this specific item was rejected
   rejected: {
     type: Boolean,
     default: false
@@ -33,6 +33,7 @@ const orderItemSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Suggested replacement
   suggestedItem: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Menu'
@@ -129,7 +130,7 @@ const orderSchema = new mongoose.Schema({
   
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled', 'rejected', 'modification_pending'],
+    enum: ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled', 'rejected'],
     default: 'pending'
   },
   
@@ -139,13 +140,13 @@ const orderSchema = new mongoose.Schema({
     default: ''
   },
   
-  // Track rejected items for modification
+  // Track rejected items with suggestions
   rejectedItems: [{
     itemId: String,
-    name: String,
+    itemName: String,
     reason: String,
     suggestedItem: {
-      menuItemId: String,
+      itemId: String,
       name: String,
       price: Number
     }
