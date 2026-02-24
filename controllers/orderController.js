@@ -22,9 +22,6 @@ const getRazorpayInstance = () => {
 };
 
 // Create new order
-// controllers/orderController.js - Updated createOrder function
-
-// Create new order
 exports.createOrder = async (req, res) => {
   try {
     console.log('📦 Creating order with data:', JSON.stringify(req.body, null, 2));
@@ -43,7 +40,8 @@ exports.createOrder = async (req, res) => {
           menuItem: item.menuItemId || null, // This might be null if not in DB
           quantity: item.quantity,
           price: item.price,
-          name: item.name
+          name: item.name,
+          instruction: item.instruction || '' // Add instruction if available
         });
         calculatedSubtotal += item.price * item.quantity;
       } else {
@@ -55,7 +53,8 @@ exports.createOrder = async (req, res) => {
               menuItem: menuItem._id,
               quantity: item.quantity,
               price: menuItem.price,
-              name: menuItem.name
+              name: menuItem.name,
+              instruction: item.instruction || ''
             });
             calculatedSubtotal += menuItem.price * item.quantity;
           } else {
@@ -64,7 +63,8 @@ exports.createOrder = async (req, res) => {
               menuItem: null,
               quantity: item.quantity,
               price: item.price || 0,
-              name: item.name || 'Unknown Item'
+              name: item.name || 'Unknown Item',
+              instruction: item.instruction || ''
             });
             calculatedSubtotal += (item.price || 0) * item.quantity;
           }
@@ -75,7 +75,8 @@ exports.createOrder = async (req, res) => {
             menuItem: null,
             quantity: item.quantity,
             price: item.price || 0,
-            name: item.name || 'Unknown Item'
+            name: item.name || 'Unknown Item',
+            instruction: item.instruction || ''
           });
           calculatedSubtotal += (item.price || 0) * item.quantity;
         }
@@ -91,6 +92,13 @@ exports.createOrder = async (req, res) => {
     
     // Generate OTP if not provided
     const finalDeliveryOtp = deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString();
+    
+    // IMPORTANT: Set status based on restaurant status
+    // Default to 'pending' - admin must accept orders
+    let orderStatus = 'pending';
+    
+    // Check restaurant status (this would need to be implemented)
+    // For now, always set to pending
     
     // Create the order
     const order = new Order({
@@ -111,14 +119,15 @@ exports.createOrder = async (req, res) => {
       razorpayOrderId: razorpayOrderId || req.body.razorpayOrderId,
       razorpaySignature: razorpaySignature || req.body.razorpaySignature,
       paymentStatus: paymentStatus || 'paid',
-      status: status || 'confirmed',
+      // Use 'pending' as default, only set to 'confirmed' if explicitly requested
+      status: status || 'pending',
       deliveryOtp: finalDeliveryOtp,
       estimatedDelivery: new Date(Date.now() + 45 * 60000)
     });
     
     await order.save();
     
-    console.log('✅ Order created successfully:', order._id);
+    console.log('✅ Order created successfully:', order._id, 'Status:', order.status);
     
     res.status(201).json({
       success: true,
@@ -376,7 +385,7 @@ exports.updatePayment = async (req, res) => {
           paymentId,
           razorpayOrderId,
           razorpaySignature,
-          status: status || 'confirmed',
+          status: status || 'pending', // Change to pending by default
           paymentStatus: paymentStatus || 'paid'
         }
       },
@@ -460,15 +469,15 @@ exports.verifyAndUpdatePayment = async (req, res) => {
     order.razorpayOrderId = razorpay_order_id;
     order.razorpaySignature = razorpay_signature;
     order.paymentStatus = 'paid';
-    order.status = 'confirmed';
+    order.status = 'pending'; // Set to pending, not confirmed
     
     await order.save();
 
-    console.log('✅ Payment verified and order updated successfully');
+    console.log('✅ Payment verified and order created with pending status');
     
     res.json({
       success: true,
-      message: 'Payment verified and order confirmed',
+      message: 'Payment verified and order pending',
       data: order
     });
 
