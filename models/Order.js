@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 
-// models/Order.js
 const orderItemSchema = new mongoose.Schema({
   menuItem: {
     type: mongoose.Schema.Types.ObjectId,
@@ -128,11 +127,11 @@ const orderSchema = new mongoose.Schema({
     default: 'pending'
   },
   
-status: {
+  status: {
     type: String,
     enum: ['pending', 'confirmed', 'preparing', 'assigned', 'out_for_delivery', 'delivered', 'cancelled', 'rejected'],
     default: 'pending'
-}
+  },
   
   // Track if order has been rejected
   rejectionReason: {
