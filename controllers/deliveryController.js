@@ -162,6 +162,7 @@ exports.getAssignments = async (req, res) => {
 };
 
 // Accept assignment
+// Accept assignment
 exports.acceptAssignment = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -190,9 +191,9 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Assign order to agent
+        // Assign order to agent - DIRECTLY to out_for_delivery
         order.deliveryAgent = agent._id;
-        order.status = 'preparing';
+        order.status = 'out_for_delivery'; // ← Changed from 'preparing' to 'out_for_delivery'
         order.assignedAt = new Date();
         await order.save();
 
