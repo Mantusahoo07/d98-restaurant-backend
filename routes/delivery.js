@@ -199,12 +199,13 @@ router.put('/profile/status', async (req, res) => {
 // ==================== ORDER ROUTES ====================
 
 // Get available assignments (orders ready for delivery - status: confirmed, no agent)
+// Get available assignments (orders without delivery agents)
 router.get('/assignments', async (req, res) => {
     try {
         console.log(`🎯 Fetching assignments for: ${req.user.email}`);
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        
+
         if (!agent || !agent.isActive) {
             return res.json({
                 success: true,
@@ -212,41 +213,23 @@ router.get('/assignments', async (req, res) => {
                 message: 'Agent is offline or not found'
             });
         }
-        
-        // Find orders that need delivery agents (status: confirmed, no agent)
+
+        // Find orders that need delivery agents
         const assignments = await Order.find({
             $or: [
                 { deliveryAgent: { $exists: false } },
                 { deliveryAgent: null }
             ],
-            status: 'confirmed' // Only confirmed orders are ready for assignment
+            status: { $in: ['confirmed', 'preparing'] }
         })
         .populate('items.menuItem')
-        .sort({ createdAt: 1 })
-        .limit(10);
-        
-        // Remove price information
-        const assignmentsWithoutPrices = assignments.map(order => ({
-            _id: order._id,
-            orderId: order.orderId,
-            customerName: order.customerName,
-            customerPhone: order.customerPhone,
-            address: order.address,
-            items: order.items.map(item => ({
-                name: item.name,
-                quantity: item.quantity,
-                instruction: item.instruction
-                // Price removed
-            })),
-            status: order.status,
-            createdAt: order.createdAt,
-            estimatedDelivery: order.estimatedDelivery
-        }));
-        
+        .sort({ createdAt: 1 });
+        // REMOVED .limit(10) - now shows ALL orders
+
         res.json({
             success: true,
-            assignments: assignmentsWithoutPrices,
-            count: assignmentsWithoutPrices.length
+            assignments: assignments,
+            count: assignments.length
         });
         
     } catch (error) {
@@ -895,3 +878,4 @@ router.get('/check-agent', async (req, res) => {
 });
 
 module.exports = router;
+
