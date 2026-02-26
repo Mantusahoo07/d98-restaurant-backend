@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const DeliveryAgent = require('../models/DeliveryAgent');
+const Order = require('../models/Order');
 
 // Apply auth middleware to all routes except public-test
 router.use((req, res, next) => {
@@ -26,13 +28,12 @@ router.use((req, res, next) => {
     next();
 });
 
+// ==================== PROFILE ROUTES ====================
+
 // Get delivery agent profile
 router.get('/profile', async (req, res) => {
     try {
         console.log(`👤 Fetching profile for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
         
         // Find agent by email
         let agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -68,9 +69,14 @@ router.get('/profile', async (req, res) => {
         }
         
         // Get agent statistics
+        const assignedOrdersCount = await Order.countDocuments({
+            deliveryAgent: agent._id,
+            status: 'assigned'
+        });
+        
         const activeOrdersCount = await Order.countDocuments({
             deliveryAgent: agent._id,
-            status: { $in: ['preparing', 'out_for_delivery', 'assigned'] }
+            status: 'out_for_delivery'
         });
         
         const completedOrdersCount = await Order.countDocuments({
@@ -83,6 +89,7 @@ router.get('/profile', async (req, res) => {
         
         const responseData = {
             ...agentResponse,
+            assignedOrders: assignedOrdersCount,
             activeOrders: activeOrdersCount,
             completedOrders: completedOrdersCount,
             rating: 4.5, // Default rating
@@ -109,8 +116,6 @@ router.put('/profile', async (req, res) => {
     try {
         const { name, phone, vehicle, isActive } = req.body;
         console.log(`✏️ Updating profile for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
@@ -156,8 +161,6 @@ router.put('/profile/status', async (req, res) => {
         const { isActive } = req.body;
         console.log(`🔄 Updating status for: ${req.user.email}, isActive: ${isActive}`);
         
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
         if (!agent) {
@@ -193,53 +196,12 @@ router.put('/profile/status', async (req, res) => {
     }
 });
 
-// Get active orders
-router.get('/orders/active', async (req, res) => {
-    try {
-        console.log(`📦 Fetching active orders for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
-        
-        const agent = await DeliveryAgent.findOne({ email: req.user.email });
-        
-        if (!agent) {
-            return res.status(404).json({
-                success: false,
-                message: 'Agent not found'
-            });
-        }
-        
-        const orders = await Order.find({
-            deliveryAgent: agent._id,
-            status: { $in: ['preparing', 'out_for_delivery', 'assigned', 'picked_up'] }
-        })
-        .populate('items.menuItem')
-        .sort({ createdAt: -1 });
-        
-        res.json({
-            success: true,
-            orders: orders,
-            count: orders.length
-        });
-        
-    } catch (error) {
-        console.error('❌ Error fetching active orders:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching active orders',
-            error: error.message
-        });
-    }
-});
+// ==================== ORDER ROUTES ====================
 
-// Get assignments (orders without delivery agents)
+// Get available assignments (orders ready for delivery - status: confirmed, no agent)
 router.get('/assignments', async (req, res) => {
     try {
         console.log(`🎯 Fetching assignments for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
@@ -251,22 +213,40 @@ router.get('/assignments', async (req, res) => {
             });
         }
         
-        // Find orders that need delivery agents
+        // Find orders that need delivery agents (status: confirmed, no agent)
         const assignments = await Order.find({
             $or: [
                 { deliveryAgent: { $exists: false } },
                 { deliveryAgent: null }
             ],
-            status: { $in: ['confirmed', 'preparing'] }
+            status: 'confirmed' // Only confirmed orders are ready for assignment
         })
         .populate('items.menuItem')
         .sort({ createdAt: 1 })
         .limit(10);
         
+        // Remove price information
+        const assignmentsWithoutPrices = assignments.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Price removed
+            })),
+            status: order.status,
+            createdAt: order.createdAt,
+            estimatedDelivery: order.estimatedDelivery
+        }));
+        
         res.json({
             success: true,
-            assignments: assignments,
-            count: assignments.length
+            assignments: assignmentsWithoutPrices,
+            count: assignmentsWithoutPrices.length
         });
         
     } catch (error) {
@@ -279,14 +259,179 @@ router.get('/assignments', async (req, res) => {
     }
 });
 
+// Get assigned orders (orders assigned to this agent - status: assigned)
+router.get('/orders/assigned', async (req, res) => {
+    try {
+        console.log(`📦 Fetching assigned orders for: ${req.user.email}`);
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agent not found'
+            });
+        }
+        
+        const orders = await Order.find({
+            deliveryAgent: agent._id,
+            status: 'assigned' // Only orders in assigned status
+        })
+        .populate('items.menuItem')
+        .sort({ assignedAt: -1 });
+        
+        // Remove price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Price removed
+            })),
+            status: order.status,
+            assignedAt: order.assignedAt,
+            createdAt: order.createdAt,
+            estimatedDelivery: order.estimatedDelivery,
+            deliveryOtp: order.deliveryOtp
+        }));
+        
+        res.json({
+            success: true,
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching assigned orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching assigned orders',
+            error: error.message
+        });
+    }
+});
+
+// Get active orders (orders out for delivery - status: out_for_delivery)
+router.get('/orders/active', async (req, res) => {
+    try {
+        console.log(`📦 Fetching active orders for: ${req.user.email}`);
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agent not found'
+            });
+        }
+        
+        const orders = await Order.find({
+            deliveryAgent: agent._id,
+            status: 'out_for_delivery'
+        })
+        .populate('items.menuItem')
+        .sort({ updatedAt: -1 });
+        
+        // Remove price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Price removed
+            })),
+            status: order.status,
+            assignedAt: order.assignedAt,
+            createdAt: order.createdAt,
+            estimatedDelivery: order.estimatedDelivery,
+            deliveryOtp: order.deliveryOtp
+        }));
+        
+        res.json({
+            success: true,
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching active orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching active orders',
+            error: error.message
+        });
+    }
+});
+
+// Get completed orders (delivered orders - status: delivered)
+router.get('/orders/completed', async (req, res) => {
+    try {
+        console.log(`📦 Fetching completed orders for: ${req.user.email}`);
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agent not found'
+            });
+        }
+        
+        const orders = await Order.find({
+            deliveryAgent: agent._id,
+            status: 'delivered'
+        })
+        .populate('items.menuItem')
+        .sort({ deliveredAt: -1 })
+        .limit(20);
+        
+        // Remove price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity
+                // Price removed
+            })),
+            status: order.status,
+            deliveredAt: order.deliveredAt,
+            createdAt: order.createdAt
+        }));
+        
+        res.json({
+            success: true,
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching completed orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching completed orders',
+            error: error.message
+        });
+    }
+});
+
 // Accept assignment
 router.post('/assignments/:id/accept', async (req, res) => {
     try {
         const orderId = req.params.id;
         console.log(`✅ Accepting assignment ${orderId} for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
@@ -306,7 +451,23 @@ router.post('/assignments/:id/accept', async (req, res) => {
             });
         }
         
-        // Assign order to agent
+        // Check if order is confirmed (ready for assignment)
+        if (order.status !== 'confirmed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is not ready for assignment'
+            });
+        }
+        
+        // Check if order already has an agent
+        if (order.deliveryAgent) {
+            return res.status(400).json({
+                success: false,
+                message: 'Order already assigned to another agent'
+            });
+        }
+        
+        // Assign to this agent - set status to 'assigned'
         order.deliveryAgent = agent._id;
         order.status = 'assigned';
         order.assignedAt = new Date();
@@ -319,10 +480,30 @@ router.post('/assignments/:id/accept', async (req, res) => {
         const updatedOrder = await Order.findById(orderId)
             .populate('items.menuItem');
         
+        // Remove price information
+        const orderWithoutPrice = {
+            _id: updatedOrder._id,
+            orderId: updatedOrder.orderId,
+            customerName: updatedOrder.customerName,
+            customerPhone: updatedOrder.customerPhone,
+            address: updatedOrder.address,
+            items: updatedOrder.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Price removed
+            })),
+            status: updatedOrder.status,
+            assignedAt: updatedOrder.assignedAt,
+            createdAt: updatedOrder.createdAt,
+            estimatedDelivery: updatedOrder.estimatedDelivery,
+            deliveryOtp: updatedOrder.deliveryOtp
+        };
+        
         res.json({
             success: true,
-            order: updatedOrder,
-            message: 'Assignment accepted successfully'
+            order: orderWithoutPrice,
+            message: 'Order assigned successfully'
         });
         
     } catch (error) {
@@ -356,14 +537,11 @@ router.post('/assignments/:id/reject', async (req, res) => {
     }
 });
 
-// Mark order as picked up
-router.post('/orders/:id/pickup', async (req, res) => {
+// Mark order as out for delivery (after picking up from restaurant)
+router.post('/orders/:id/out-for-delivery', async (req, res) => {
     try {
         const orderId = req.params.id;
-        console.log(`📦 Marking order ${orderId} as picked up by: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
+        console.log(`📦 Marking order ${orderId} as out for delivery by: ${req.user.email}`);
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         const order = await Order.findById(orderId);
@@ -383,26 +561,55 @@ router.post('/orders/:id/pickup', async (req, res) => {
             });
         }
         
+        // Check if order is in assigned status
+        if (order.status !== 'assigned') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is not in assigned status'
+            });
+        }
+        
         order.status = 'out_for_delivery';
         await order.save();
         
+        const updatedOrder = await Order.findById(orderId)
+            .populate('items.menuItem');
+        
+        // Remove price information
+        const orderWithoutPrice = {
+            _id: updatedOrder._id,
+            orderId: updatedOrder.orderId,
+            customerName: updatedOrder.customerName,
+            customerPhone: updatedOrder.customerPhone,
+            address: updatedOrder.address,
+            items: updatedOrder.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Price removed
+            })),
+            status: updatedOrder.status,
+            assignedAt: updatedOrder.assignedAt,
+            createdAt: updatedOrder.createdAt,
+            estimatedDelivery: updatedOrder.estimatedDelivery,
+            deliveryOtp: updatedOrder.deliveryOtp
+        };
+        
         res.json({
             success: true,
-            order: order,
-            message: 'Order marked as picked up'
+            order: orderWithoutPrice,
+            message: 'Order marked as out for delivery'
         });
         
     } catch (error) {
-        console.error('❌ Error marking order as picked up:', error);
+        console.error('❌ Error marking order as out for delivery:', error);
         res.status(500).json({
             success: false,
-            message: 'Error marking order as picked up',
+            message: 'Error marking order as out for delivery',
             error: error.message
         });
     }
 });
-
-
 
 // Verify delivery OTP
 router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
@@ -412,10 +619,6 @@ router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
         
         console.log(`🔑 Verifying delivery OTP for order: ${orderId}`);
         
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
-        
-        // Get the agent
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         if (!agent) {
             return res.status(404).json({
@@ -424,7 +627,6 @@ router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
             });
         }
         
-        // Get the order
         const order = await Order.findById(orderId);
         if (!order) {
             return res.status(404).json({
@@ -463,18 +665,29 @@ router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
         order.otpVerified = true;
         await order.save();
         
-        // Update agent status and increment deliveries
-        agent.status = 'available';
+        // Update agent stats
         agent.ordersDelivered += 1;
-        await agent.save();
         
-        const updatedOrder = await Order.findById(orderId)
-            .populate('items.menuItem');
+        // Check if agent has any other active orders
+        const otherActiveOrders = await Order.countDocuments({
+            deliveryAgent: agent._id,
+            status: { $in: ['assigned', 'out_for_delivery'] }
+        });
+        
+        if (otherActiveOrders === 0) {
+            agent.status = 'available';
+        }
+        await agent.save();
         
         res.json({
             success: true,
             message: 'OTP verified and order marked as delivered',
-            order: updatedOrder
+            order: {
+                _id: order._id,
+                orderId: order.orderId,
+                status: order.status,
+                deliveredAt: order.deliveredAt
+            }
         });
         
     } catch (error) {
@@ -487,13 +700,12 @@ router.post('/orders/:id/verify-delivery-otp', async (req, res) => {
     }
 });
 
-// Get earnings
+// ==================== EARNINGS ROUTES (Counts only, no prices) ====================
+
+// Get earnings data (counts only)
 router.get('/earnings', async (req, res) => {
     try {
         console.log(`💰 Fetching earnings for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
@@ -518,46 +730,38 @@ router.get('/earnings', async (req, res) => {
         const deliveredOrders = await Order.find({
             deliveryAgent: agent._id,
             status: 'delivered'
-        });
+        }).select('deliveredAt');
         
-        // Calculate earnings (₹40 per delivery)
-        let todayEarnings = 0;
-        let weekEarnings = 0;
-        let monthEarnings = 0;
-        let totalEarnings = 0;
+        // Calculate counts only
+        let todayDeliveries = 0;
+        let weekDeliveries = 0;
+        let monthDeliveries = 0;
         
         deliveredOrders.forEach(order => {
-            const orderDate = new Date(order.deliveredAt || order.updatedAt);
-            const earnings = order.deliveryCharge || 40; // Default ₹40
-            
-            totalEarnings += earnings;
+            const orderDate = new Date(order.deliveredAt);
             
             if (orderDate >= today) {
-                todayEarnings += earnings;
+                todayDeliveries++;
             }
             
             if (orderDate >= weekStart) {
-                weekEarnings += earnings;
+                weekDeliveries++;
             }
             
             if (orderDate >= monthStart) {
-                monthEarnings += earnings;
+                monthDeliveries++;
             }
         });
         
         const earningsData = {
-            today: todayEarnings,
-            week: weekEarnings,
-            month: monthEarnings,
-            total: totalEarnings,
+            today: todayDeliveries,
+            week: weekDeliveries,
+            month: monthDeliveries,
+            total: agent.ordersDelivered,
             totalDeliveries: agent.ordersDelivered,
             rating: 4.5,
             avgDeliveryTime: 25,
-            deductions: 0,
-            bonuses: 200,
-            monthlyDeliveries: deliveredOrders.filter(order => 
-                new Date(order.deliveredAt || order.updatedAt) >= monthStart
-            ).length
+            monthlyDeliveries: monthDeliveries
         };
         
         res.json({
@@ -575,13 +779,10 @@ router.get('/earnings', async (req, res) => {
     }
 });
 
-// Get transactions
+// Get transaction history (simplified - no amounts)
 router.get('/transactions', async (req, res) => {
     try {
         console.log(`📊 Fetching transactions for: ${req.user.email}`);
-        
-        const DeliveryAgent = require('../models/DeliveryAgent');
-        const Order = require('../models/Order');
         
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
         
@@ -597,17 +798,16 @@ router.get('/transactions', async (req, res) => {
             deliveryAgent: agent._id,
             status: 'delivered'
         })
-        .select('orderId deliveryCharge deliveredAt')
+        .select('orderId deliveredAt')
         .sort({ deliveredAt: -1 })
-        .limit(10);
+        .limit(20);
         
         const transactions = orders.map(order => ({
             type: 'delivery',
-            amount: order.deliveryCharge || 40,
             orderId: order.orderId,
             date: order.deliveredAt,
             status: 'completed',
-            description: `Delivery fee for order #${order.orderId}`
+            description: `Delivery #${order.orderId}`
         }));
         
         res.json({
@@ -625,10 +825,21 @@ router.get('/transactions', async (req, res) => {
     }
 });
 
+// ==================== NOTIFICATIONS ====================
+
 // Get notifications
 router.get('/notifications', async (req, res) => {
     try {
         console.log(`🔔 Fetching notifications for: ${req.user.email}`);
+        
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agent not found'
+            });
+        }
         
         const notifications = [
             {
@@ -656,6 +867,8 @@ router.get('/notifications', async (req, res) => {
     }
 });
 
+// ==================== AGENT STATUS CHECK ====================
+
 // Check if user is agent
 router.get('/check-agent', async (req, res) => {
     try {
@@ -663,9 +876,12 @@ router.get('/check-agent', async (req, res) => {
                             req.user.email.includes('delivery') ||
                             req.user.email.includes('agent');
         
+        // Also check database
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+        
         res.json({
             success: true,
-            isAgent: isAgentEmail,
+            isAgent: !!(agent || isAgentEmail),
             email: req.user.email
         });
     } catch (error) {
