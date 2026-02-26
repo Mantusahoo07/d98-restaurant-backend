@@ -96,10 +96,10 @@ exports.getActiveOrders = async (req, res) => {
             });
         }
 
-        // IMPORTANT: Only show orders assigned to THIS specific agent
+        // ONLY orders assigned to THIS specific agent
         const orders = await Order.find({
-            deliveryAgent: agent._id,  // Only this agent's orders
-            status: { $in: ['out_for_delivery', 'preparing'] } // Active statuses
+            deliveryAgent: agent._id,
+            status: { $in: ['out_for_delivery', 'preparing'] }
         })
         .populate('items.menuItem')
         .sort({ createdAt: -1 });
@@ -124,7 +124,6 @@ exports.getAssignments = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
 
-        // Only show assignments if agent is available
         if (!agent || !agent.isActive || agent.status !== 'available') {
             return res.json({
                 success: true,
@@ -132,16 +131,16 @@ exports.getAssignments = async (req, res) => {
             });
         }
 
-        // Find orders that are confirmed and NOT assigned to ANY agent
+        // ONLY orders with status 'confirmed' AND no agent
         const assignments = await Order.find({
-            status: 'confirmed',  // Only confirmed orders
+            status: 'confirmed',
             $or: [
-                { deliveryAgent: { $exists: false } },  // No deliveryAgent field
-                { deliveryAgent: null }                   // deliveryAgent is null
+                { deliveryAgent: { $exists: false } },
+                { deliveryAgent: null }
             ]
         })
         .populate('items.menuItem')
-        .sort({ createdAt: 1 })  // Oldest first
+        .sort({ createdAt: 1 })
         .limit(10);
 
         res.json({
@@ -180,7 +179,7 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Check if order already has an agent
+        // Double-check order doesn't already have an agent
         if (order.deliveryAgent) {
             return res.status(400).json({
                 success: false,
@@ -188,9 +187,9 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Assign order to this agent with OUT_FOR_DELIVERY status
+        // Assign to this agent
         order.deliveryAgent = agent._id;
-        order.status = 'out_for_delivery';  // Directly out for delivery
+        order.status = 'out_for_delivery';
         order.assignedAt = new Date();
         await order.save();
 
