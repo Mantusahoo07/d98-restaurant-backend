@@ -200,6 +200,7 @@ router.put('/profile/status', async (req, res) => {
 
 // Get available assignments (orders ready for delivery - status: confirmed, no agent)
 // Get available assignments (orders without delivery agents)
+// Get available assignments (orders ready for delivery - NOT assigned to any agent)
 router.get('/assignments', async (req, res) => {
     try {
         console.log(`🎯 Fetching assignments for: ${req.user.email}`);
@@ -214,22 +215,36 @@ router.get('/assignments', async (req, res) => {
             });
         }
 
-        // Find orders that need delivery agents
+        // Find orders that need delivery agents (status: confirmed, NO deliveryAgent)
         const assignments = await Order.find({
-            $or: [
-                { deliveryAgent: { $exists: false } },
-                { deliveryAgent: null }
-            ],
-            status: { $in: ['confirmed', 'preparing'] }
+            status: 'confirmed',
+            deliveryAgent: { $exists: false }  // Only orders with no agent assigned
         })
         .populate('items.menuItem')
-        .sort({ createdAt: 1 });
-        // REMOVED .limit(10) - now shows ALL orders
+        .sort({ createdAt: 1 })
+        .limit(50);
+
+        // Remove price information
+        const assignmentsWithoutPrices = assignments.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+            })),
+            status: order.status,
+            createdAt: order.createdAt,
+            estimatedDelivery: order.estimatedDelivery
+        }));
 
         res.json({
             success: true,
-            assignments: assignments,
-            count: assignments.length
+            assignments: assignmentsWithoutPrices,
+            count: assignmentsWithoutPrices.length
         });
         
     } catch (error) {
@@ -878,4 +893,5 @@ router.get('/check-agent', async (req, res) => {
 });
 
 module.exports = router;
+
 
