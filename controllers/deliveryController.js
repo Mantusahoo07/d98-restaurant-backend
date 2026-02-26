@@ -16,9 +16,14 @@ exports.getAgentProfile = async (req, res) => {
         }
 
         // Get agent statistics
+        const assignedOrders = await Order.countDocuments({ 
+            deliveryAgent: agent._id,
+            status: 'assigned'
+        });
+
         const activeOrders = await Order.countDocuments({ 
             deliveryAgent: agent._id,
-            status: { $in: ['out_for_delivery', 'preparing'] }
+            status: { $in: ['out_for_delivery'] }
         });
 
         const completedOrders = await Order.countDocuments({ 
@@ -28,6 +33,7 @@ exports.getAgentProfile = async (req, res) => {
 
         const agentWithStats = {
             ...agent.toObject(),
+            assignedOrders,
             activeOrders,
             completedOrders,
             rating: 4.5
@@ -84,7 +90,60 @@ exports.updateAgentProfile = async (req, res) => {
     }
 };
 
-// ==================== FIXED: Get active orders for specific agent ====================
+// ==================== FIXED: Get assigned orders for specific agent ====================
+exports.getAssignedOrders = async (req, res) => {
+    try {
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Delivery agent not found'
+            });
+        }
+
+        // ONLY orders assigned to THIS specific agent with status 'assigned'
+        const orders = await Order.find({
+            deliveryAgent: agent._id,
+            status: 'assigned'
+        })
+        .populate('items.menuItem')
+        .sort({ createdAt: -1 });
+
+        // Return without price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Removed price
+            })),
+            status: order.status,
+            createdAt: order.createdAt,
+            deliveryOtp: order.deliveryOtp
+        }));
+
+        res.json({
+            success: true,
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
+        });
+    } catch (error) {
+        console.error('Error fetching assigned orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching assigned orders',
+            error: error.message
+        });
+    }
+};
+
+// ==================== Get active (out_for_delivery) orders for agent ====================
 exports.getActiveOrders = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -96,18 +155,36 @@ exports.getActiveOrders = async (req, res) => {
             });
         }
 
-        // ONLY orders assigned to THIS specific agent
+        // Orders with status 'out_for_delivery' assigned to this agent
         const orders = await Order.find({
             deliveryAgent: agent._id,
-            status: { $in: ['out_for_delivery', 'preparing'] }
+            status: 'out_for_delivery'
         })
         .populate('items.menuItem')
         .sort({ createdAt: -1 });
 
+        // Return without price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+                // Removed price
+            })),
+            status: order.status,
+            createdAt: order.createdAt,
+            deliveryOtp: order.deliveryOtp
+        }));
+
         res.json({
             success: true,
-            orders,
-            count: orders.length
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
         });
     } catch (error) {
         console.error('Error fetching active orders:', error);
@@ -119,7 +196,59 @@ exports.getActiveOrders = async (req, res) => {
     }
 };
 
-// ==================== FIXED: Get available assignments ====================
+// ==================== Get completed (delivered) orders for agent ====================
+exports.getCompletedOrders = async (req, res) => {
+    try {
+        const agent = await DeliveryAgent.findOne({ email: req.user.email });
+
+        if (!agent) {
+            return res.status(404).json({
+                success: false,
+                message: 'Delivery agent not found'
+            });
+        }
+
+        // Orders with status 'delivered' assigned to this agent
+        const orders = await Order.find({
+            deliveryAgent: agent._id,
+            status: 'delivered'
+        })
+        .populate('items.menuItem')
+        .sort({ deliveredAt: -1 })
+        .limit(20);
+
+        // Return without price information
+        const ordersWithoutPrices = orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity
+                // Removed price
+            })),
+            status: order.status,
+            deliveredAt: order.deliveredAt,
+            createdAt: order.createdAt
+        }));
+
+        res.json({
+            success: true,
+            orders: ordersWithoutPrices,
+            count: ordersWithoutPrices.length
+        });
+    } catch (error) {
+        console.error('Error fetching completed orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching completed orders',
+            error: error.message
+        });
+    }
+};
+
+// ==================== Get available assignments ====================
 exports.getAssignments = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -143,10 +272,26 @@ exports.getAssignments = async (req, res) => {
         .sort({ createdAt: 1 })
         .limit(10);
 
+        // Return without price information
+        const assignmentsWithoutPrices = assignments.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            address: order.address,
+            items: order.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity
+                // Removed price
+            })),
+            status: order.status,
+            createdAt: order.createdAt
+        }));
+
         res.json({
             success: true,
-            assignments,
-            count: assignments.length
+            assignments: assignmentsWithoutPrices,
+            count: assignmentsWithoutPrices.length
         });
     } catch (error) {
         console.error('Error fetching assignments:', error);
@@ -158,7 +303,7 @@ exports.getAssignments = async (req, res) => {
     }
 };
 
-// ==================== FIXED: Accept assignment ====================
+// ==================== Accept assignment ====================
 exports.acceptAssignment = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -179,6 +324,14 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
+        // Check if order is confirmed (ready for assignment)
+        if (order.status !== 'confirmed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is not ready for assignment'
+            });
+        }
+
         // Double-check order doesn't already have an agent
         if (order.deliveryAgent) {
             return res.status(400).json({
@@ -187,9 +340,9 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Assign to this agent
+        // Assign to this agent - set status to 'assigned' first
         order.deliveryAgent = agent._id;
-        order.status = 'out_for_delivery';
+        order.status = 'assigned';
         order.assignedAt = new Date();
         await order.save();
 
@@ -200,9 +353,26 @@ exports.acceptAssignment = async (req, res) => {
         const updatedOrder = await Order.findById(order._id)
             .populate('items.menuItem');
 
+        // Return without price
+        const orderWithoutPrice = {
+            _id: updatedOrder._id,
+            orderId: updatedOrder.orderId,
+            customerName: updatedOrder.customerName,
+            customerPhone: updatedOrder.customerPhone,
+            address: updatedOrder.address,
+            items: updatedOrder.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+            })),
+            status: updatedOrder.status,
+            createdAt: updatedOrder.createdAt,
+            deliveryOtp: updatedOrder.deliveryOtp
+        };
+
         res.json({
             success: true,
-            order: updatedOrder,
+            order: orderWithoutPrice,
             message: 'Order assigned successfully'
         });
     } catch (error) {
@@ -215,25 +385,8 @@ exports.acceptAssignment = async (req, res) => {
     }
 };
 
-// Reject assignment
-exports.rejectAssignment = async (req, res) => {
-    try {
-        res.json({
-            success: true,
-            message: 'Assignment rejected'
-        });
-    } catch (error) {
-        console.error('Error rejecting assignment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error rejecting assignment',
-            error: error.message
-        });
-    }
-};
-
-// Mark order as picked up (if you still need this)
-exports.markAsPickedUp = async (req, res) => {
+// ==================== Mark as out for delivery (after picking up) ====================
+exports.markAsOutForDelivery = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
 
@@ -261,27 +414,54 @@ exports.markAsPickedUp = async (req, res) => {
             });
         }
 
+        // Check if order is in assigned status
+        if (order.status !== 'assigned') {
+            return res.status(400).json({
+                success: false,
+                message: 'Order is not in assigned status'
+            });
+        }
+
+        // Update to out_for_delivery
         order.status = 'out_for_delivery';
         await order.save();
 
         const updatedOrder = await Order.findById(order._id)
             .populate('items.menuItem');
 
+        // Return without price
+        const orderWithoutPrice = {
+            _id: updatedOrder._id,
+            orderId: updatedOrder.orderId,
+            customerName: updatedOrder.customerName,
+            customerPhone: updatedOrder.customerPhone,
+            address: updatedOrder.address,
+            items: updatedOrder.items.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                instruction: item.instruction
+            })),
+            status: updatedOrder.status,
+            createdAt: updatedOrder.createdAt,
+            deliveryOtp: updatedOrder.deliveryOtp
+        };
+
         res.json({
             success: true,
-            order: updatedOrder
+            order: orderWithoutPrice,
+            message: 'Order marked as out for delivery'
         });
     } catch (error) {
-        console.error('Error marking as picked up:', error);
+        console.error('Error marking as out for delivery:', error);
         res.status(500).json({
             success: false,
-            message: 'Error marking as picked up',
+            message: 'Error marking as out for delivery',
             error: error.message
         });
     }
 };
 
-// Verify delivery OTP
+// ==================== Verify delivery OTP ====================
 exports.verifyDeliveryOtp = async (req, res) => {
     try {
         console.log('🔑 Verifying delivery OTP for order:', req.params.id);
@@ -330,14 +510,27 @@ exports.verifyDeliveryOtp = async (req, res) => {
         const agent = await DeliveryAgent.findById(order.deliveryAgent);
         if (agent) {
             agent.ordersDelivered += 1;
-            agent.status = 'available'; // Agent becomes available again
+            // Check if agent has any other active orders
+            const otherActiveOrders = await Order.countDocuments({
+                deliveryAgent: agent._id,
+                status: { $in: ['assigned', 'out_for_delivery'] }
+            });
+            
+            if (otherActiveOrders === 0) {
+                agent.status = 'available';
+            }
             await agent.save();
         }
         
         res.json({
             success: true,
             message: 'OTP verified and order marked as delivered',
-            data: order
+            data: {
+                _id: order._id,
+                orderId: order.orderId,
+                status: order.status,
+                deliveredAt: order.deliveredAt
+            }
         });
     } catch (error) {
         console.error('Error verifying delivery OTP:', error);
@@ -349,7 +542,7 @@ exports.verifyDeliveryOtp = async (req, res) => {
     }
 };
 
-// Get earnings data
+// ==================== Get earnings data (simplified - count only) ====================
 exports.getEarnings = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -373,45 +566,37 @@ exports.getEarnings = async (req, res) => {
         const deliveredOrders = await Order.find({
             deliveryAgent: agent._id,
             status: 'delivered'
-        }).select('total deliveryCharge deliveredAt');
+        }).select('deliveredAt');
 
-        let todayEarnings = 0;
-        let weekEarnings = 0;
-        let monthEarnings = 0;
-        let totalEarnings = 0;
+        let todayDeliveries = 0;
+        let weekDeliveries = 0;
+        let monthDeliveries = 0;
 
         deliveredOrders.forEach(order => {
             const orderDate = new Date(order.deliveredAt);
-            const earnings = order.deliveryCharge || 40;
 
-            totalEarnings += earnings;
-            
             if (orderDate >= today) {
-                todayEarnings += earnings;
+                todayDeliveries++;
             }
             
             if (orderDate >= weekStart) {
-                weekEarnings += earnings;
+                weekDeliveries++;
             }
             
             if (orderDate >= monthStart) {
-                monthEarnings += earnings;
+                monthDeliveries++;
             }
         });
 
         const earningsData = {
-            today: todayEarnings,
-            week: weekEarnings,
-            month: monthEarnings,
-            total: totalEarnings,
+            today: todayDeliveries,
+            week: weekDeliveries,
+            month: monthDeliveries,
+            total: agent.ordersDelivered,
             totalDeliveries: agent.ordersDelivered,
             rating: 4.5,
             avgDeliveryTime: 25,
-            deductions: 0,
-            bonuses: 0,
-            monthlyDeliveries: deliveredOrders.filter(order => 
-                new Date(order.deliveredAt) >= monthStart
-            ).length
+            monthlyDeliveries: monthDeliveries
         };
 
         res.json({
@@ -428,7 +613,7 @@ exports.getEarnings = async (req, res) => {
     }
 };
 
-// Get transaction history
+// ==================== Get transaction history (simplified) ====================
 exports.getTransactionHistory = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -443,42 +628,20 @@ exports.getTransactionHistory = async (req, res) => {
         const orders = await Order.find({
             deliveryAgent: agent._id,
             status: 'delivered'
-        }).select('orderId total deliveryCharge deliveredAt')
+        }).select('orderId deliveredAt')
           .sort({ deliveredAt: -1 })
           .limit(20);
 
         const transactions = orders.map(order => ({
             type: 'delivery',
-            amount: order.deliveryCharge || 40,
             orderId: order.orderId,
             date: order.deliveredAt,
             status: 'completed'
         }));
 
-        const mockTransactions = [
-            {
-                type: 'bonus',
-                amount: 200,
-                description: 'Weekly performance bonus',
-                date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-                status: 'completed'
-            },
-            {
-                type: 'withdrawal',
-                amount: -1500,
-                description: 'Bank transfer',
-                date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-                status: 'completed'
-            }
-        ];
-
-        const allTransactions = [...mockTransactions, ...transactions]
-            .sort((a, b) => new Date(b.date) - new Date(a.date))
-            .slice(0, 10);
-
         res.json({
             success: true,
-            transactions: allTransactions
+            transactions: transactions
         });
     } catch (error) {
         console.error('Error fetching transaction history:', error);
@@ -490,7 +653,7 @@ exports.getTransactionHistory = async (req, res) => {
     }
 };
 
-// Get notifications
+// ==================== Get notifications ====================
 exports.getNotifications = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -513,19 +676,11 @@ exports.getNotifications = async (req, res) => {
             },
             {
                 id: 2,
-                title: 'Weekly Earnings',
-                message: 'Your weekly earnings report is available',
+                title: 'Weekly Summary',
+                message: `You completed ${agent.ordersDelivered || 0} deliveries this week`,
                 type: 'earnings',
                 read: true,
                 createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
-            },
-            {
-                id: 3,
-                title: 'Profile Update',
-                message: 'Please update your vehicle information',
-                type: 'reminder',
-                read: false,
-                createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
             }
         ];
 
@@ -543,7 +698,7 @@ exports.getNotifications = async (req, res) => {
     }
 };
 
-// Check if user is a delivery agent
+// ==================== Check if user is a delivery agent ====================
 exports.checkAgentStatus = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ 
