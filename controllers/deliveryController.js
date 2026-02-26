@@ -18,7 +18,7 @@ exports.getAgentProfile = async (req, res) => {
         // Get agent statistics
         const activeOrders = await Order.countDocuments({ 
             deliveryAgent: agent._id,
-            status: { $in: ['out_for_delivery', 'preparing', 'picked_up'] }
+            status: { $in: ['out_for_delivery', 'preparing'] }
         });
 
         const completedOrders = await Order.countDocuments({ 
@@ -30,7 +30,7 @@ exports.getAgentProfile = async (req, res) => {
             ...agent.toObject(),
             activeOrders,
             completedOrders,
-            rating: 4.5 // Default or calculate from reviews
+            rating: 4.5
         };
 
         res.json({
@@ -50,7 +50,7 @@ exports.getAgentProfile = async (req, res) => {
 // Update agent profile
 exports.updateAgentProfile = async (req, res) => {
     try {
-        const { name, phone, vehicleNumber, vehicleType, isActive } = req.body;
+        const { name, phone, vehicleNumber, isActive } = req.body;
 
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
 
@@ -61,7 +61,6 @@ exports.updateAgentProfile = async (req, res) => {
             });
         }
 
-        // Update fields
         if (name) agent.name = name;
         if (phone) agent.phone = phone;
         if (vehicleNumber !== undefined) agent.vehicle = vehicleNumber;
@@ -69,7 +68,6 @@ exports.updateAgentProfile = async (req, res) => {
 
         await agent.save();
 
-        // Return updated agent without password
         const updatedAgent = await DeliveryAgent.findById(agent._id).select('-password -__v');
 
         res.json({
@@ -86,7 +84,7 @@ exports.updateAgentProfile = async (req, res) => {
     }
 };
 
-// Get active orders for agent
+// ==================== FIXED: Get active orders for specific agent ====================
 exports.getActiveOrders = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -98,16 +96,18 @@ exports.getActiveOrders = async (req, res) => {
             });
         }
 
+        // IMPORTANT: Only show orders assigned to THIS specific agent
         const orders = await Order.find({
-            deliveryAgent: agent._id,
-            status: { $in: ['confirmed', 'preparing', 'out_for_delivery', 'picked_up'] }
+            deliveryAgent: agent._id,  // Only this agent's orders
+            status: { $in: ['out_for_delivery', 'preparing'] } // Active statuses
         })
         .populate('items.menuItem')
         .sort({ createdAt: -1 });
 
         res.json({
             success: true,
-            orders
+            orders,
+            count: orders.length
         });
     } catch (error) {
         console.error('Error fetching active orders:', error);
@@ -119,11 +119,12 @@ exports.getActiveOrders = async (req, res) => {
     }
 };
 
-// Get available assignments for agent
+// ==================== FIXED: Get available assignments ====================
 exports.getAssignments = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
 
+        // Only show assignments if agent is available
         if (!agent || !agent.isActive || agent.status !== 'available') {
             return res.json({
                 success: true,
@@ -131,25 +132,22 @@ exports.getAssignments = async (req, res) => {
             });
         }
 
-        // Find orders without delivery agent or with specific status
+        // Find orders that are confirmed and NOT assigned to ANY agent
         const assignments = await Order.find({
+            status: 'confirmed',  // Only confirmed orders
             $or: [
-                { deliveryAgent: { $exists: false } },
-                { deliveryAgent: null },
-                { 
-                    deliveryAgent: { $exists: true },
-                    status: { $in: ['confirmed', 'preparing'] }
-                }
-            ],
-            status: { $in: ['confirmed', 'preparing'] }
+                { deliveryAgent: { $exists: false } },  // No deliveryAgent field
+                { deliveryAgent: null }                   // deliveryAgent is null
+            ]
         })
         .populate('items.menuItem')
-        .sort({ createdAt: 1 })
+        .sort({ createdAt: 1 })  // Oldest first
         .limit(10);
 
         res.json({
             success: true,
-            assignments
+            assignments,
+            count: assignments.length
         });
     } catch (error) {
         console.error('Error fetching assignments:', error);
@@ -161,8 +159,7 @@ exports.getAssignments = async (req, res) => {
     }
 };
 
-// Accept assignment
-// Accept assignment
+// ==================== FIXED: Accept assignment ====================
 exports.acceptAssignment = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -183,17 +180,17 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Check if order is already assigned
-        if (order.deliveryAgent && order.deliveryAgent.toString() !== agent._id.toString()) {
+        // Check if order already has an agent
+        if (order.deliveryAgent) {
             return res.status(400).json({
                 success: false,
                 message: 'Order already assigned to another agent'
             });
         }
 
-        // IMPORTANT: Use 'out_for_delivery' - this IS in the enum
+        // Assign order to this agent with OUT_FOR_DELIVERY status
         order.deliveryAgent = agent._id;
-        order.status = 'out_for_delivery'; // ← Changed from 'preparing' to 'out_for_delivery'
+        order.status = 'out_for_delivery';  // Directly out for delivery
         order.assignedAt = new Date();
         await order.save();
 
@@ -206,7 +203,8 @@ exports.acceptAssignment = async (req, res) => {
 
         res.json({
             success: true,
-            order: updatedOrder
+            order: updatedOrder,
+            message: 'Order assigned successfully'
         });
     } catch (error) {
         console.error('Error accepting assignment:', error);
@@ -235,7 +233,7 @@ exports.rejectAssignment = async (req, res) => {
     }
 };
 
-// Mark order as picked up
+// Mark order as picked up (if you still need this)
 exports.markAsPickedUp = async (req, res) => {
     try {
         const agent = await DeliveryAgent.findOne({ email: req.user.email });
@@ -257,7 +255,7 @@ exports.markAsPickedUp = async (req, res) => {
         }
 
         // Check if order is assigned to this agent
-        if (order.deliveryAgent.toString() !== agent._id.toString()) {
+        if (!order.deliveryAgent || order.deliveryAgent.toString() !== agent._id.toString()) {
             return res.status(403).json({
                 success: false,
                 message: 'Order not assigned to you'
@@ -284,9 +282,7 @@ exports.markAsPickedUp = async (req, res) => {
     }
 };
 
-
-
-// Verify delivery OTP for delivery agent
+// Verify delivery OTP
 exports.verifyDeliveryOtp = async (req, res) => {
     try {
         console.log('🔑 Verifying delivery OTP for order:', req.params.id);
@@ -331,6 +327,14 @@ exports.verifyDeliveryOtp = async (req, res) => {
         order.otpVerified = true;
         await order.save();
         
+        // Update agent stats
+        const agent = await DeliveryAgent.findById(order.deliveryAgent);
+        if (agent) {
+            agent.ordersDelivered += 1;
+            agent.status = 'available'; // Agent becomes available again
+            await agent.save();
+        }
+        
         res.json({
             success: true,
             message: 'OTP verified and order marked as delivered',
@@ -358,27 +362,20 @@ exports.getEarnings = async (req, res) => {
             });
         }
 
-        // Get today's start and end
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Get this week's start (Monday)
         const weekStart = new Date(today);
         weekStart.setDate(today.getDate() - today.getDay() + 1);
         weekStart.setHours(0, 0, 0, 0);
 
-        // Get this month's start
         const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-        // Get agent's delivered orders
         const deliveredOrders = await Order.find({
             deliveryAgent: agent._id,
             status: 'delivered'
         }).select('total deliveryCharge deliveredAt');
 
-        // Calculate earnings
         let todayEarnings = 0;
         let weekEarnings = 0;
         let monthEarnings = 0;
@@ -386,7 +383,7 @@ exports.getEarnings = async (req, res) => {
 
         deliveredOrders.forEach(order => {
             const orderDate = new Date(order.deliveredAt);
-            const earnings = order.deliveryCharge || 40; // Default ₹40 per delivery
+            const earnings = order.deliveryCharge || 40;
 
             totalEarnings += earnings;
             
@@ -403,7 +400,6 @@ exports.getEarnings = async (req, res) => {
             }
         });
 
-        // Mock earnings data
         const earningsData = {
             today: todayEarnings,
             week: weekEarnings,
@@ -411,7 +407,7 @@ exports.getEarnings = async (req, res) => {
             total: totalEarnings,
             totalDeliveries: agent.ordersDelivered,
             rating: 4.5,
-            avgDeliveryTime: 25, // minutes
+            avgDeliveryTime: 25,
             deductions: 0,
             bonuses: 0,
             monthlyDeliveries: deliveredOrders.filter(order => 
@@ -445,7 +441,6 @@ exports.getTransactionHistory = async (req, res) => {
             });
         }
 
-        // Get delivered orders as transactions
         const orders = await Order.find({
             deliveryAgent: agent._id,
             status: 'delivered'
@@ -461,7 +456,6 @@ exports.getTransactionHistory = async (req, res) => {
             status: 'completed'
         }));
 
-        // Add some mock transactions for demonstration
         const mockTransactions = [
             {
                 type: 'bonus',
@@ -509,7 +503,6 @@ exports.getNotifications = async (req, res) => {
             });
         }
 
-        // Mock notifications
         const notifications = [
             {
                 id: 1,
@@ -517,7 +510,7 @@ exports.getNotifications = async (req, res) => {
                 message: 'You have a new delivery assignment in your area',
                 type: 'assignment',
                 read: false,
-                createdAt: new Date(Date.now() - 30 * 60 * 1000) // 30 minutes ago
+                createdAt: new Date(Date.now() - 30 * 60 * 1000)
             },
             {
                 id: 2,
@@ -525,7 +518,7 @@ exports.getNotifications = async (req, res) => {
                 message: 'Your weekly earnings report is available',
                 type: 'earnings',
                 read: true,
-                createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) // 2 days ago
+                createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
             },
             {
                 id: 3,
@@ -533,7 +526,7 @@ exports.getNotifications = async (req, res) => {
                 message: 'Please update your vehicle information',
                 type: 'reminder',
                 read: false,
-                createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) // 5 days ago
+                createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
             }
         ];
 
