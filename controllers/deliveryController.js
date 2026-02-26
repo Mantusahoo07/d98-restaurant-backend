@@ -191,7 +191,7 @@ exports.acceptAssignment = async (req, res) => {
             });
         }
 
-        // Assign order to agent - DIRECTLY to out_for_delivery
+        // IMPORTANT: Use 'out_for_delivery' - this IS in the enum
         order.deliveryAgent = agent._id;
         order.status = 'out_for_delivery'; // ← Changed from 'preparing' to 'out_for_delivery'
         order.assignedAt = new Date();
