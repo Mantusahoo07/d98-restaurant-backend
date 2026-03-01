@@ -1,7 +1,6 @@
 const Order = require('../models/Order');
 const Menu = require('../models/Menu');
 const Razorpay = require('razorpay');
-const DeliverySettings = require('../models/DeliverySettings');
 
 // Initialize Razorpay - FIXED: No initialization at bottom
 let razorpayInstance = null;
