@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Menu = require('../models/Menu');
 const Razorpay = require('razorpay');
+const DeliverySettings = require('../models/DeliverySettings'); // Add this line
 
 // Initialize Razorpay - FIXED: No initialization at bottom
 let razorpayInstance = null;
@@ -85,7 +86,21 @@ exports.createOrder = async (req, res) => {
     
     // Use provided totals or calculate
     const finalSubtotal = subtotal || calculatedSubtotal;
-    const finalDeliveryCharge = deliveryCharge || calculateDeliveryCharge(address);
+    
+    // Calculate delivery charge - use provided or calculate dynamically
+    let finalDeliveryCharge = deliveryCharge;
+    if (!finalDeliveryCharge && finalDeliveryCharge !== 0) {
+      finalDeliveryCharge = await calculateDeliveryCharge(address, finalSubtotal);
+    }
+    
+    // Check if delivery is possible
+    if (finalDeliveryCharge === -1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery not available to this address. Address is beyond our delivery radius.'
+      });
+    }
+    
     const finalPlatformFee = platformFee || (finalSubtotal * 0.03);
     const finalGst = gst || (finalSubtotal * 0.05);
     const finalTotal = total || (finalSubtotal + finalDeliveryCharge + finalPlatformFee + finalGst);
@@ -126,6 +141,7 @@ exports.createOrder = async (req, res) => {
     await order.save();
     
     console.log('✅ Order created successfully:', order._id, 'Status:', order.status);
+    console.log('💰 Delivery charge applied:', finalDeliveryCharge);
     
     res.status(201).json({
       success: true,
@@ -489,29 +505,77 @@ exports.verifyAndUpdatePayment = async (req, res) => {
   }
 };
 
-// Helper function to calculate delivery charge
-function calculateDeliveryCharge(address) {
-  if (!address || !address.lat || !address.lng) {
-    return 0;
+// ==================== UPDATED HELPER FUNCTIONS ====================
+
+// Helper function to calculate delivery charge using dynamic settings
+async function calculateDeliveryCharge(address, subtotal = 0) {
+  try {
+    if (!address || !address.lat || !address.lng) {
+      console.log('⚠️ No address or coordinates provided');
+      return 0;
+    }
+    
+    // Get latest delivery settings from database
+    const settings = await DeliverySettings.findOne();
+    
+    if (!settings) {
+      console.log('⚠️ No delivery settings found, using defaults');
+      return 20; // Default fallback
+    }
+    
+    console.log('📋 Using delivery settings:', {
+      baseCharge: settings.baseDeliveryCharge,
+      additionalPerKm: settings.additionalChargePerKm,
+      maxRadius: settings.maxDeliveryRadius,
+      free5kmThreshold: settings.freeDeliveryWithin5kmThreshold,
+      free10kmThreshold: settings.freeDeliveryUpto10kmThreshold
+    });
+    
+    const restaurantLocation = settings.restaurantLocation || { lat: 20.6952266, lng: 83.488972 };
+    const distance = calculateDistance(
+      restaurantLocation.lat,
+      restaurantLocation.lng,
+      address.lat,
+      address.lng
+    );
+    
+    console.log(`📍 Distance calculated: ${distance.toFixed(2)} km`);
+    
+    // Check if within delivery radius
+    if (distance > settings.maxDeliveryRadius) {
+      console.log(`❌ Distance ${distance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
+      return -1; // Not deliverable
+    }
+    
+    // Calculate base delivery charge
+    let deliveryCharge = settings.baseDeliveryCharge || 20;
+    
+    // Add additional charges for distance beyond 1km
+    if (distance > 1) {
+      const additionalKms = Math.ceil(distance - 1);
+      deliveryCharge += additionalKms * (settings.additionalChargePerKm || 10);
+    }
+    
+    // Apply free delivery thresholds
+    if (distance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
+      console.log('🎉 Free delivery applied (within 5km threshold)');
+      deliveryCharge = 0;
+    } else if (distance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
+      console.log('🎉 Free delivery applied (up to 10km threshold)');
+      deliveryCharge = 0;
+    }
+    
+    console.log(`💰 Final delivery charge: ₹${deliveryCharge}`);
+    return deliveryCharge;
+    
+  } catch (error) {
+    console.error('Error calculating delivery charge:', error);
+    return 20; // Default fallback on error
   }
-  
-  // Simplified calculation - in production, use proper distance calculation
-  const restaurantLocation = { lat: 20.6952266, lng: 83.488972 };
-  const distance = calculateDistance(
-    restaurantLocation.lat,
-    restaurantLocation.lng,
-    address.lat,
-    address.lng
-  );
-  
-  if (distance <= 0.5) return 20;
-  if (distance <= 1) return 20;
-  if (distance <= 10) return 20 + Math.ceil(distance - 1) * 10;
-  return 60;
 }
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
+  const R = 6371; // Radius of the earth in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
@@ -519,5 +583,59 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
+  const distance = R * c; // Distance in km
+  return distance;
 }
+
+// Helper function to calculate order totals (can be used by frontend)
+exports.calculateOrderTotals = async (req, res) => {
+  try {
+    const { subtotal, address } = req.body;
+    
+    if (!subtotal || !address) {
+      return res.status(400).json({
+        success: false,
+        message: 'Subtotal and address are required'
+      });
+    }
+    
+    const deliveryCharge = await calculateDeliveryCharge(address, subtotal);
+    
+    if (deliveryCharge === -1) {
+      return res.json({
+        success: true,
+        deliverable: false,
+        message: 'Delivery not available to this address'
+      });
+    }
+    
+    const settings = await DeliverySettings.findOne() || {};
+    
+    const platformFeePercent = (settings.platformFeePercent || 3) / 100;
+    const gstPercent = (settings.gstPercent || 5) / 100;
+    
+    const platformFee = subtotal * platformFeePercent;
+    const gst = subtotal * gstPercent;
+    const total = subtotal + deliveryCharge + platformFee + gst;
+    
+    res.json({
+      success: true,
+      deliverable: true,
+      breakdown: {
+        subtotal: parseFloat(subtotal.toFixed(2)),
+        deliveryCharge: parseFloat(deliveryCharge.toFixed(2)),
+        platformFee: parseFloat(platformFee.toFixed(2)),
+        gst: parseFloat(gst.toFixed(2)),
+        total: parseFloat(total.toFixed(2))
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error calculating totals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error calculating totals',
+      error: error.message
+    });
+  }
+};
