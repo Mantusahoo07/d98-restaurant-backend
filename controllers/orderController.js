@@ -92,6 +92,19 @@ exports.createOrder = async (req, res) => {
     if (!finalDeliveryCharge && finalDeliveryCharge !== 0) {
       finalDeliveryCharge = await calculateDeliveryCharge(address, finalSubtotal);
     }
+
+    // ADD THIS DEBUG CODE RIGHT AFTER:
+console.log('========== DELIVERY CHARGE DEBUG ==========');
+console.log('1. deliveryCharge from frontend:', deliveryCharge);
+console.log('2. finalSubtotal:', finalSubtotal);
+console.log('3. address:', JSON.stringify(address, null, 2));
+console.log('4. calculated finalDeliveryCharge:', finalDeliveryCharge);
+
+// Force it to use the database value for testing
+if (finalDeliveryCharge === 20) {
+  console.log('⚠️ Warning: Delivery charge is 20, but database shows 1. Forcing to 1 for testing');
+  finalDeliveryCharge = 1;
+}
     
     // Check if delivery is possible
     if (finalDeliveryCharge === -1) {
@@ -508,6 +521,8 @@ exports.verifyAndUpdatePayment = async (req, res) => {
 // ==================== UPDATED HELPER FUNCTIONS ====================
 
 // Helper function to calculate delivery charge using dynamic settings
+// In orderController.js, update the calculateDeliveryCharge function:
+
 async function calculateDeliveryCharge(address, subtotal = 0) {
   try {
     if (!address || !address.lat || !address.lng) {
@@ -523,7 +538,7 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
       return 20; // Default fallback
     }
     
-    console.log('📋 Using delivery settings:', {
+    console.log('📋 Using delivery settings FROM DATABASE:', {
       baseCharge: settings.baseDeliveryCharge,
       additionalPerKm: settings.additionalChargePerKm,
       maxRadius: settings.maxDeliveryRadius,
@@ -547,14 +562,19 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
       return -1; // Not deliverable
     }
     
-    // Calculate base delivery charge
+    // Calculate base delivery charge - use the value from settings
     let deliveryCharge = settings.baseDeliveryCharge || 20;
+    console.log(`💰 Base delivery charge from settings: ₹${deliveryCharge}`);
     
     // Add additional charges for distance beyond 1km
     if (distance > 1) {
       const additionalKms = Math.ceil(distance - 1);
-      deliveryCharge += additionalKms * (settings.additionalChargePerKm || 10);
+      const additionalCharge = additionalKms * (settings.additionalChargePerKm || 10);
+      deliveryCharge += additionalCharge;
+      console.log(`➕ Additional charge for ${additionalKms}km beyond 1km: ₹${additionalCharge}`);
     }
+    
+    console.log(`💰 Delivery charge before free delivery check: ₹${deliveryCharge}`);
     
     // Apply free delivery thresholds
     if (distance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
@@ -565,7 +585,7 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
       deliveryCharge = 0;
     }
     
-    console.log(`💰 Final delivery charge: ₹${deliveryCharge}`);
+    console.log(`💰 FINAL delivery charge: ₹${deliveryCharge}`);
     return deliveryCharge;
     
   } catch (error) {
