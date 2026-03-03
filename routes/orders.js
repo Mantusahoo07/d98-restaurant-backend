@@ -124,4 +124,6 @@ router.post('/razorpay/create-order', async (req, res) => {
 // Verify payment
 router.post('/:id/verify-payment', orderController.verifyAndUpdatePayment);
 
+router.post('/calculate-distance', orderController.calculateRoadDistance);
+
 module.exports = router;
