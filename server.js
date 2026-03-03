@@ -246,6 +246,32 @@ app.use('/api/admin', adminRouter);
 app.use('/api/delivery', deliveryRouter);
 app.get('/api/restaurant-status', restaurantSettingsController.getRestaurantStatus);
 
+
+// Add to your server.js or a test route
+app.get('/api/test-ors', async (req, res) => {
+  try {
+    const routeService = require('./services/routeService');
+    
+    // Test with your restaurant and a point ~1km away
+    const result = await routeService.getRoadDistance(
+      20.6952266, 83.488972,  // Restaurant
+      20.6852266, 83.498972    // Point ~1.5km away
+    );
+    
+    res.json({
+      success: true,
+      result: result,
+      apiStats: routeService.getApiStats()
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
 // ==================== DEBUG LOGGING ====================
 console.log('=== ROUTE DEBUG ===');
 console.log('✅ Admin router loaded');
