@@ -532,18 +532,20 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     });
     
     const restaurantLocation = settings.restaurantLocation || { lat: 20.6952266, lng: 83.488972 };
-    const distance = calculateDistance(
+    
+    // Calculate road distance using OSRM
+    const roadDistance = await getRoadDistance(
       restaurantLocation.lat,
       restaurantLocation.lng,
       address.lat,
       address.lng
     );
     
-    console.log(`📍 Distance calculated: ${distance.toFixed(2)} km`);
+    console.log(`📍 Road distance calculated: ${roadDistance.toFixed(2)} km`);
     
-    // Check if within delivery radius
-    if (distance > settings.maxDeliveryRadius) {
-      console.log(`❌ Distance ${distance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
+    // Check if within delivery radius (using road distance)
+    if (roadDistance > settings.maxDeliveryRadius) {
+      console.log(`❌ Distance ${roadDistance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
       return -1; // Not deliverable
     }
     
@@ -551,16 +553,16 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     let deliveryCharge = settings.baseDeliveryCharge || 20;
     
     // Add additional charges for distance beyond 1km
-    if (distance > 1) {
-      const additionalKms = Math.ceil(distance - 1);
+    if (roadDistance > 1) {
+      const additionalKms = Math.ceil(roadDistance - 1);
       deliveryCharge += additionalKms * (settings.additionalChargePerKm || 10);
     }
     
     // Apply free delivery thresholds
-    if (distance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
+    if (roadDistance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
       console.log('🎉 Free delivery applied (within 5km threshold)');
       deliveryCharge = 0;
-    } else if (distance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
+    } else if (roadDistance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
       console.log('🎉 Free delivery applied (up to 10km threshold)');
       deliveryCharge = 0;
     }
@@ -572,6 +574,41 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     console.error('Error calculating delivery charge:', error);
     return 20; // Default fallback on error
   }
+}
+async function getRoadDistance(lat1, lon1, lat2, lon2) {
+  try {
+    // Using OSRM demo server (for production, set up your own OSRM server)
+    const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      // Distance is in meters, convert to kilometers
+      const distanceInMeters = data.routes[0].distance;
+      const distanceInKm = distanceInMeters / 1000;
+      return distanceInKm;
+    } else {
+      console.warn('OSRM routing failed, falling back to straight-line distance');
+      return calculateStraightLineDistance(lat1, lon1, lat2, lon2);
+    }
+  } catch (error) {
+    console.error('Error getting road distance:', error);
+    console.warn('Falling back to straight-line distance');
+    return calculateStraightLineDistance(lat1, lon1, lat2, lon2);
+  }
+}
+function calculateStraightLineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const distance = R * c; // Distance in km
+  return distance;
 }
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
