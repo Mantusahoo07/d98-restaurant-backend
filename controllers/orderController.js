@@ -695,3 +695,38 @@ exports.calculateOrderTotals = async (req, res) => {
     });
   }
 };
+// Calculate road distance for display
+exports.calculateRoadDistance = async (req, res) => {
+    try {
+        const { restaurantLat, restaurantLng, customerLat, customerLng } = req.body;
+        
+        if (!restaurantLat || !restaurantLng || !customerLat || !customerLng) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing coordinates'
+            });
+        }
+        
+        const routeService = require('../services/routeService');
+        
+        const result = await routeService.getRoadDistance(
+            parseFloat(restaurantLat), 
+            parseFloat(restaurantLng),
+            parseFloat(customerLat), 
+            parseFloat(customerLng)
+        );
+        
+        res.json({
+            success: true,
+            ...result
+        });
+        
+    } catch (error) {
+        console.error('Error calculating road distance:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error calculating distance',
+            error: error.message
+        });
+    }
+};
