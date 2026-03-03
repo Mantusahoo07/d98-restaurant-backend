@@ -3,6 +3,7 @@ const Menu = require('../models/Menu');
 const Razorpay = require('razorpay');
 const DeliverySettings = require('../models/DeliverySettings');
 const crypto = require('crypto');
+const routeService = require('../services/routeService');
 
 // ==================== ROUTE SERVICE (OpenRouteService) ====================
 class RouteService {
@@ -595,26 +596,15 @@ exports.verifyAndUpdatePayment = async (req, res) => {
 async function calculateDeliveryCharge(address, subtotal = 0) {
   try {
     if (!address || !address.lat || !address.lng) {
-      console.log('⚠️ No address or coordinates provided');
       return 0;
     }
     
     const settings = await DeliverySettings.findOne();
-    
-    if (!settings) {
-      console.log('⚠️ No delivery settings found, using defaults');
-      return 20;
-    }
-    
-    console.log('📋 Using delivery settings:', {
-      baseCharge: settings.baseDeliveryCharge,
-      additionalPerKm: settings.additionalChargePerKm,
-      maxRadius: settings.maxDeliveryRadius
-    });
+    if (!settings) return 20;
     
     const restaurantLocation = settings.restaurantLocation || { lat: 20.6952266, lng: 83.488972 };
     
-    // Get ACTUAL road distance using OpenRouteService
+    // Get road distance (with fallback to straight-line)
     const routeResult = await routeService.getRoadDistance(
       restaurantLocation.lat,
       restaurantLocation.lng,
@@ -624,11 +614,10 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     
     const distance = routeResult.distance;
     
-    console.log(`📍 Distance source: ${routeResult.source}, value: ${distance.toFixed(2)} km`);
+    console.log(`📍 Distance used: ${distance.toFixed(2)} km (${routeResult.source})`);
     
     // Check if within delivery radius
     if (distance > settings.maxDeliveryRadius) {
-      console.log(`❌ Distance ${distance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
       return -1;
     }
     
@@ -642,14 +631,11 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     
     // Apply free delivery thresholds
     if (distance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
-      console.log('🎉 Free delivery applied (within 5km threshold)');
       deliveryCharge = 0;
     } else if (distance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
-      console.log('🎉 Free delivery applied (up to max radius threshold)');
       deliveryCharge = 0;
     }
     
-    console.log(`💰 Final delivery charge: ₹${deliveryCharge}`);
     return deliveryCharge;
     
   } catch (error) {
