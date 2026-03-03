@@ -1,12 +1,129 @@
 const Order = require('../models/Order');
 const Menu = require('../models/Menu');
 const Razorpay = require('razorpay');
-const DeliverySettings = require('../models/DeliverySettings'); // Add this line
+const DeliverySettings = require('../models/DeliverySettings');
+const crypto = require('crypto');
 
-// Initialize Razorpay - FIXED: No initialization at bottom
+// ==================== ROUTE SERVICE (OpenRouteService) ====================
+class RouteService {
+  constructor() {
+    this.apiKey = process.env.ORS_API_KEY || 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6Ijc5YzI1OGNjMGVhYTRmNWZhYWQ1ZWRiZWE1NzFjOTZkIiwiaCI6Im11cm11cjY0In0=';
+    this.cache = new Map(); // Simple in-memory cache
+    this.dailyCallCount = 0;
+    this.maxDailyCalls = 1900; // Leave buffer of 100 calls
+  }
+
+  /**
+   * Get road distance between two points using OpenRouteService
+   */
+  async getRoadDistance(lat1, lng1, lat2, lng2) {
+    try {
+      // Check cache first (round to 4 decimals ~11 meters)
+      const cacheKey = this.getCacheKey(lat1, lng1, lat2, lng2);
+      if (this.cache.has(cacheKey)) {
+        console.log('📦 Using cached road distance');
+        return {
+          distance: this.cache.get(cacheKey),
+          source: 'cache'
+        };
+      }
+
+      // Check daily limit
+      this.dailyCallCount++;
+      if (this.dailyCallCount > this.maxDailyCalls) {
+        console.warn('⚠️ Approaching daily API limit, using fallback');
+        const fallbackDistance = this.calculateStraightLine(lat1, lng1, lat2, lng2);
+        return {
+          distance: fallbackDistance,
+          source: 'fallback-straight-line',
+          warning: 'API limit reached'
+        };
+      }
+
+      // Call OpenRouteService API
+      const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${this.apiKey}&start=${lng1},${lat1}&end=${lng2},${lat2}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.features && data.features[0]) {
+        const distanceInKm = data.features[0].properties.segments[0].distance / 1000; // Convert meters to km
+        
+        // Cache the result (expire after 24 hours)
+        this.cache.set(cacheKey, distanceInKm);
+        setTimeout(() => this.cache.delete(cacheKey), 24 * 60 * 60 * 1000);
+        
+        console.log(`✅ ORS road distance: ${distanceInKm.toFixed(2)} km`);
+        return {
+          distance: distanceInKm,
+          source: 'ors'
+        };
+      } else {
+        console.warn('⚠️ ORS routing failed, using straight-line fallback');
+        const fallbackDistance = this.calculateStraightLine(lat1, lng1, lat2, lng2);
+        return {
+          distance: fallbackDistance,
+          source: 'fallback-straight-line'
+        };
+      }
+    } catch (error) {
+      console.error('❌ ORS API error:', error.message);
+      const fallbackDistance = this.calculateStraightLine(lat1, lng1, lat2, lng2);
+      return {
+        distance: fallbackDistance,
+        source: 'fallback-straight-line',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Calculate straight-line distance (fallback)
+   */
+  calculateStraightLine(lat1, lng1, lat2, lng2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+
+  /**
+   * Generate cache key for coordinates
+   */
+  getCacheKey(lat1, lng1, lat2, lng2) {
+    const p1 = `${lat1.toFixed(4)},${lng1.toFixed(4)}`;
+    const p2 = `${lat2.toFixed(4)},${lng2.toFixed(4)}`;
+    return `${p1}:${p2}`;
+  }
+
+  /**
+   * Reset daily call count (call this at midnight)
+   */
+  resetDailyCount() {
+    this.dailyCallCount = 0;
+    console.log('📊 ORS daily call count reset');
+  }
+}
+
+// Initialize route service
+const routeService = new RouteService();
+
+// Reset counter at midnight (if server runs continuously)
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 0 && now.getMinutes() === 0) {
+    routeService.resetDailyCount();
+  }
+}, 60 * 1000); // Check every minute
+
+// ==================== RAZORPAY INITIALIZATION ====================
 let razorpayInstance = null;
 
-// Function to initialize Razorpay lazily
 const getRazorpayInstance = () => {
   if (!razorpayInstance) {
     if (process.env.RZP_KEY_ID && process.env.RZP_KEY_SECRET) {
@@ -22,6 +139,8 @@ const getRazorpayInstance = () => {
   return razorpayInstance;
 };
 
+// ==================== ORDER CONTROLLER FUNCTIONS ====================
+
 // Create new order
 exports.createOrder = async (req, res) => {
   try {
@@ -29,24 +148,21 @@ exports.createOrder = async (req, res) => {
     
     const { items, address, paymentMethod, customerInfo, orderId, deliveryOtp, total, subtotal, deliveryCharge, platformFee, gst, paymentId, razorpayOrderId, razorpaySignature, paymentStatus } = req.body;
     
-    // If items are already fully populated with names and prices, use them directly
+    // Process order items
     let orderItems = [];
     let calculatedSubtotal = 0;
     
     for (const item of items) {
-      // Check if the item has all required fields
       if (item.name && item.price) {
-        // Use the item data directly from the request
         orderItems.push({
-          menuItem: item.menuItemId || null, // This might be null if not in DB
+          menuItem: item.menuItemId || null,
           quantity: item.quantity,
           price: item.price,
           name: item.name,
-          instruction: item.instruction || '' // Add instruction if available
+          instruction: item.instruction || ''
         });
         calculatedSubtotal += item.price * item.quantity;
       } else {
-        // Try to fetch from database as fallback
         try {
           const menuItem = await Menu.findById(item.menuItemId);
           if (menuItem) {
@@ -59,7 +175,6 @@ exports.createOrder = async (req, res) => {
             });
             calculatedSubtotal += menuItem.price * item.quantity;
           } else {
-            // If menu item not found but we have basic data, create with what we have
             orderItems.push({
               menuItem: null,
               quantity: item.quantity,
@@ -71,7 +186,6 @@ exports.createOrder = async (req, res) => {
           }
         } catch (dbError) {
           console.error('Error fetching menu item:', dbError);
-          // Still create the order with provided data
           orderItems.push({
             menuItem: null,
             quantity: item.quantity,
@@ -84,16 +198,14 @@ exports.createOrder = async (req, res) => {
       }
     }
     
-    // Use provided totals or calculate
     const finalSubtotal = subtotal || calculatedSubtotal;
     
-    // Calculate delivery charge - use provided or calculate dynamically
+    // Calculate delivery charge using road distance
     let finalDeliveryCharge = deliveryCharge;
     if (!finalDeliveryCharge && finalDeliveryCharge !== 0) {
       finalDeliveryCharge = await calculateDeliveryCharge(address, finalSubtotal);
     }
     
-    // Check if delivery is possible
     if (finalDeliveryCharge === -1) {
       return res.status(400).json({
         success: false,
@@ -104,16 +216,10 @@ exports.createOrder = async (req, res) => {
     const finalPlatformFee = platformFee || (finalSubtotal * 0.03);
     const finalGst = gst || (finalSubtotal * 0.05);
     const finalTotal = total || (finalSubtotal + finalDeliveryCharge + finalPlatformFee + finalGst);
-    
-    // Generate OTP if not provided
     const finalDeliveryOtp = deliveryOtp || Math.floor(1000 + Math.random() * 9000).toString();
     
-    // IMPORTANT: Force status to 'pending' - OVERRIDE any status sent from frontend
-    const orderStatus = 'pending';
+    console.log(`📝 Setting order status to: pending (forced - overriding frontend)`);
     
-    console.log(`📝 Setting order status to: ${orderStatus} (forced - overriding frontend)`);
-    
-    // Create the order
     const order = new Order({
       orderId: orderId || ('D98' + Date.now().toString().slice(-8)),
       userId: req.user.uid,
@@ -132,7 +238,6 @@ exports.createOrder = async (req, res) => {
       razorpayOrderId: razorpayOrderId || req.body.razorpayOrderId,
       razorpaySignature: razorpaySignature || req.body.razorpaySignature,
       paymentStatus: paymentStatus || 'paid',
-      // FORCE STATUS TO PENDING - ignore any status from frontend
       status: 'pending',
       deliveryOtp: finalDeliveryOtp,
       estimatedDelivery: new Date(Date.now() + 45 * 60000)
@@ -288,20 +393,13 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
-// Get assigned orders for delivery agent - NEW FUNCTION
+// Get assigned orders for delivery agent
 exports.getAssignedOrdersForAgent = async (req, res) => {
   try {
-    // This would require delivery agent authentication
-    // For now, returning empty or mock data
     console.log('🛵 Getting assigned orders for delivery agent');
     
-    // In a real implementation, you would:
-    // 1. Get delivery agent ID from auth
-    // 2. Find orders assigned to this agent
-    // 3. Return those orders
-    
     const orders = await Order.find({
-      deliveryAgent: req.user.uid, // Assuming delivery agent has auth
+      deliveryAgent: req.user.uid,
       status: { $in: ['out_for_delivery', 'preparing'] }
     })
     .populate('items.menuItem')
@@ -330,7 +428,6 @@ exports.createRazorpayOrder = async (req, res) => {
     
     const { amount, receipt } = req.body;
     
-    // Validate amount
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -338,13 +435,9 @@ exports.createRazorpayOrder = async (req, res) => {
       });
     }
     
-    // Convert amount to paise
     const amountInPaise = Math.round(amount * 100);
-    
-    // Get Razorpay instance
     const razorpay = getRazorpayInstance();
     
-    // Check if Razorpay is configured
     if (!razorpay) {
       console.error('❌ Razorpay not initialized');
       return res.status(500).json({
@@ -390,7 +483,7 @@ exports.createRazorpayOrder = async (req, res) => {
 // Update payment
 exports.updatePayment = async (req, res) => {
   try {
-    const { paymentId, razorpayOrderId, razorpaySignature, status, paymentStatus } = req.body;
+    const { paymentId, razorpayOrderId, razorpaySignature, paymentStatus } = req.body;
     
     const order = await Order.findByIdAndUpdate(
       req.params.id,
@@ -399,7 +492,7 @@ exports.updatePayment = async (req, res) => {
           paymentId,
           razorpayOrderId,
           razorpaySignature,
-          status: 'pending', // Force to pending, ignore any status from frontend
+          status: 'pending',
           paymentStatus: paymentStatus || 'paid'
         }
       },
@@ -432,10 +525,7 @@ exports.verifyAndUpdatePayment = async (req, res) => {
     const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
     
     console.log('🔍 Verifying payment for order:', req.params.id);
-    console.log('Payment ID:', razorpay_payment_id);
-    console.log('Order ID:', razorpay_order_id);
-
-    // Validate required fields
+    
     if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
       return res.status(400).json({
         success: false,
@@ -443,7 +533,6 @@ exports.verifyAndUpdatePayment = async (req, res) => {
       });
     }
 
-    // Find the order
     const order = await Order.findById(req.params.id);
     
     if (!order) {
@@ -453,7 +542,6 @@ exports.verifyAndUpdatePayment = async (req, res) => {
       });
     }
 
-    // Verify the user owns this order
     if (order.userId !== req.user.uid) {
       return res.status(403).json({
         success: false,
@@ -461,8 +549,6 @@ exports.verifyAndUpdatePayment = async (req, res) => {
       });
     }
 
-    // Verify the payment signature
-    const crypto = require('crypto');
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RZP_KEY_SECRET)
@@ -478,12 +564,11 @@ exports.verifyAndUpdatePayment = async (req, res) => {
       });
     }
 
-    // Update the order with payment details
     order.paymentId = razorpay_payment_id;
     order.razorpayOrderId = razorpay_order_id;
     order.razorpaySignature = razorpay_signature;
     order.paymentStatus = 'paid';
-    order.status = 'pending'; // Set to pending, not confirmed
+    order.status = 'pending';
     
     await order.save();
 
@@ -505,9 +590,8 @@ exports.verifyAndUpdatePayment = async (req, res) => {
   }
 };
 
-// ==================== UPDATED HELPER FUNCTIONS ====================
+// ==================== DELIVERY CHARGE CALCULATION WITH ROAD DISTANCE ====================
 
-// Helper function to calculate delivery charge using dynamic settings
 async function calculateDeliveryCharge(address, subtotal = 0) {
   try {
     if (!address || !address.lat || !address.lng) {
@@ -515,55 +599,53 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
       return 0;
     }
     
-    // Get latest delivery settings from database
     const settings = await DeliverySettings.findOne();
     
     if (!settings) {
       console.log('⚠️ No delivery settings found, using defaults');
-      return 20; // Default fallback
+      return 20;
     }
     
     console.log('📋 Using delivery settings:', {
       baseCharge: settings.baseDeliveryCharge,
       additionalPerKm: settings.additionalChargePerKm,
-      maxRadius: settings.maxDeliveryRadius,
-      free5kmThreshold: settings.freeDeliveryWithin5kmThreshold,
-      free10kmThreshold: settings.freeDeliveryUpto10kmThreshold
+      maxRadius: settings.maxDeliveryRadius
     });
     
     const restaurantLocation = settings.restaurantLocation || { lat: 20.6952266, lng: 83.488972 };
     
-    // Calculate road distance using OSRM
-    const roadDistance = await getRoadDistance(
+    // Get ACTUAL road distance using OpenRouteService
+    const routeResult = await routeService.getRoadDistance(
       restaurantLocation.lat,
       restaurantLocation.lng,
       address.lat,
       address.lng
     );
     
-    console.log(`📍 Road distance calculated: ${roadDistance.toFixed(2)} km`);
+    const distance = routeResult.distance;
     
-    // Check if within delivery radius (using road distance)
-    if (roadDistance > settings.maxDeliveryRadius) {
-      console.log(`❌ Distance ${roadDistance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
-      return -1; // Not deliverable
+    console.log(`📍 Distance source: ${routeResult.source}, value: ${distance.toFixed(2)} km`);
+    
+    // Check if within delivery radius
+    if (distance > settings.maxDeliveryRadius) {
+      console.log(`❌ Distance ${distance.toFixed(2)}km exceeds max radius ${settings.maxDeliveryRadius}km`);
+      return -1;
     }
     
-    // Calculate base delivery charge
+    // Calculate delivery charge
     let deliveryCharge = settings.baseDeliveryCharge || 20;
     
-    // Add additional charges for distance beyond 1km
-    if (roadDistance > 1) {
-      const additionalKms = Math.ceil(roadDistance - 1);
+    if (distance > 1) {
+      const additionalKms = Math.ceil(distance - 1);
       deliveryCharge += additionalKms * (settings.additionalChargePerKm || 10);
     }
     
     // Apply free delivery thresholds
-    if (roadDistance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
+    if (distance <= 5 && subtotal >= (settings.freeDeliveryWithin5kmThreshold || 999)) {
       console.log('🎉 Free delivery applied (within 5km threshold)');
       deliveryCharge = 0;
-    } else if (roadDistance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
-      console.log('🎉 Free delivery applied (up to 10km threshold)');
+    } else if (distance <= settings.maxDeliveryRadius && subtotal >= (settings.freeDeliveryUpto10kmThreshold || 1499)) {
+      console.log('🎉 Free delivery applied (up to max radius threshold)');
       deliveryCharge = 0;
     }
     
@@ -572,59 +654,12 @@ async function calculateDeliveryCharge(address, subtotal = 0) {
     
   } catch (error) {
     console.error('Error calculating delivery charge:', error);
-    return 20; // Default fallback on error
+    return 20;
   }
 }
-async function getRoadDistance(lat1, lon1, lat2, lon2) {
-  try {
-    // Using OSRM demo server (for production, set up your own OSRM server)
-    const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-      // Distance is in meters, convert to kilometers
-      const distanceInMeters = data.routes[0].distance;
-      const distanceInKm = distanceInMeters / 1000;
-      return distanceInKm;
-    } else {
-      console.warn('OSRM routing failed, falling back to straight-line distance');
-      return calculateStraightLineDistance(lat1, lon1, lat2, lon2);
-    }
-  } catch (error) {
-    console.error('Error getting road distance:', error);
-    console.warn('Falling back to straight-line distance');
-    return calculateStraightLineDistance(lat1, lon1, lat2, lon2);
-  }
-}
-function calculateStraightLineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radius of the earth in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const distance = R * c; // Distance in km
-  return distance;
-}
 
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radius of the earth in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const distance = R * c; // Distance in km
-  return distance;
-}
+// ==================== ORDER TOTALS CALCULATION ====================
 
-// Helper function to calculate order totals (can be used by frontend)
 exports.calculateOrderTotals = async (req, res) => {
   try {
     const { subtotal, address } = req.body;
