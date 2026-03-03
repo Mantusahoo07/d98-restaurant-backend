@@ -111,8 +111,6 @@ class RouteService {
   }
 }
 
-// Initialize route service
-const routeService = new RouteService();
 
 // Reset counter at midnight (if server runs continuously)
 setInterval(() => {
