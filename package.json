@@ -16,7 +16,7 @@
     "jsonwebtoken": "^9.0.2",
     "razorpay": "^2.8.6",
     "firebase-admin": "^11.10.1",
-    "openrouteservice-js": "^0.7.2",
+    "openrouteservice": "^0.8.3",
     "node-cache": "^5.1.2"
   },
   "devDependencies": {
