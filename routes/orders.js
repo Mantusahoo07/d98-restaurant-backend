@@ -32,6 +32,7 @@ router.get('/', async (req, res) => {
         const Order = require('../models/Order');
         const orders = await Order.find(filter)
             .populate('items.menuItem')
+            .populate('deliveryAgent')   // ✅ FIX
             .sort({ createdAt: -1 });
         
         console.log(`✅ Found ${orders.length} orders`);
@@ -62,7 +63,9 @@ router.get('/:id', async (req, res) => {
         const order = await Order.findOne({
             _id: req.params.id,
             userId: req.user.uid
-        }).populate('items.menuItem');
+        })
+        .populate('items.menuItem')
+        .populate('deliveryAgent');   // ✅ FIX
         
         if (!order) {
             return res.status(404).json({
@@ -98,7 +101,6 @@ router.post('/razorpay/create-order', async (req, res) => {
     try {
         console.log('💳 Creating Razorpay order via orders route');
         
-        // Check if controller function exists
         if (!orderController.createRazorpayOrder) {
             console.error('❌ orderController.createRazorpayOrder is undefined');
             return res.status(500).json({
@@ -108,7 +110,6 @@ router.post('/razorpay/create-order', async (req, res) => {
             });
         }
         
-        // Call the controller function
         return orderController.createRazorpayOrder(req, res);
         
     } catch (error) {
