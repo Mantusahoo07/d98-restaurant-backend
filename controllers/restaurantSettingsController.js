@@ -49,12 +49,27 @@ const calculateRestaurantStatus = (settings) => {
     let isOpen = false;
     let nextOpenTime = null;
     let currentShift = null;
+    let offlineMessage = null;
     
     // If manually overridden, just return the manual state
     if (settings.manualOverride) {
         isOpen = settings.isOnline;
+        
+        // Add offline reason if restaurant is closed
+        if (!isOpen && settings.offlineReason) {
+            offlineMessage = {
+                reason: settings.offlineReason.reason,
+                duration: settings.offlineReason.duration,
+                setAt: settings.offlineReason.setAt
+            };
+        }
     } else if (settings.specialClosing.isClosed) {
         isOpen = false;
+        offlineMessage = {
+            reason: 'temporarily_closed',
+            message: settings.specialClosing.reason,
+            estimatedReturn: settings.specialClosing.estimatedReturn
+        };
     } else {
         if (settings.autoScheduleEnabled) {
             if (settings.shift1Enabled) {
@@ -94,6 +109,8 @@ const calculateRestaurantStatus = (settings) => {
         isTemporarilyClosed: settings.specialClosing.isClosed,
         temporaryClosingReason: settings.specialClosing.reason,
         manualOverride: settings.manualOverride,
+        offlineReason: settings.offlineReason,
+        offlineMessage,
         shifts: {
             shift1: {
                 enabled: settings.shift1Enabled,
@@ -141,6 +158,7 @@ exports.updateRestaurantSettings = async (req, res) => {
             isOnline,
             autoScheduleEnabled,
             manualOverride,
+            offlineReason,
             shift1Enabled,
             shift1Open,
             shift1Close,
@@ -160,6 +178,22 @@ exports.updateRestaurantSettings = async (req, res) => {
         if (typeof isOnline !== 'undefined') settings.isOnline = isOnline;
         if (typeof autoScheduleEnabled !== 'undefined') settings.autoScheduleEnabled = autoScheduleEnabled;
         if (typeof manualOverride !== 'undefined') settings.manualOverride = manualOverride;
+        
+        // Handle offline reason
+        if (offlineReason) {
+            settings.offlineReason = {
+                reason: offlineReason.reason,
+                duration: offlineReason.duration,
+                setAt: new Date()
+            };
+        } else if (offlineReason === null) {
+            // Clear offline reason if explicitly set to null
+            settings.offlineReason = {
+                reason: null,
+                duration: null,
+                setAt: null
+            };
+        }
         
         // Shift 1
         if (typeof shift1Enabled !== 'undefined') settings.shift1Enabled = shift1Enabled;
@@ -218,6 +252,11 @@ exports.resetRestaurantSettings = async (req, res) => {
         settings.isOnline = false;
         settings.autoScheduleEnabled = true;
         settings.manualOverride = false;
+        settings.offlineReason = {
+            reason: null,
+            duration: null,
+            setAt: null
+        };
         settings.shift1Enabled = true;
         settings.shift1Open = '09:00';
         settings.shift1Close = '17:00';
@@ -227,6 +266,7 @@ exports.resetRestaurantSettings = async (req, res) => {
         settings.specialClosing = {
             isClosed: false,
             reason: '',
+            estimatedReturn: null,
             closedUntil: null
         };
         settings.lastUpdatedBy = req.user._id;
