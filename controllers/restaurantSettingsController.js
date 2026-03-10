@@ -50,7 +50,10 @@ const calculateRestaurantStatus = (settings) => {
     let nextOpenTime = null;
     let currentShift = null;
     
-    if (settings.specialClosing.isClosed) {
+    // If manually overridden, just return the manual state
+    if (settings.manualOverride) {
+        isOpen = settings.isOnline;
+    } else if (settings.specialClosing.isClosed) {
         isOpen = false;
     } else {
         if (settings.autoScheduleEnabled) {
@@ -72,7 +75,7 @@ const calculateRestaurantStatus = (settings) => {
         }
     }
     
-    if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled) {
+    if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled && !settings.manualOverride) {
         if (settings.shift1Enabled && currentTime < settings.shift1Open) {
             nextOpenTime = settings.shift1Open;
         } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
@@ -90,6 +93,7 @@ const calculateRestaurantStatus = (settings) => {
         nextOpenTime,
         isTemporarilyClosed: settings.specialClosing.isClosed,
         temporaryClosingReason: settings.specialClosing.reason,
+        manualOverride: settings.manualOverride,
         shifts: {
             shift1: {
                 enabled: settings.shift1Enabled,
@@ -136,6 +140,7 @@ exports.updateRestaurantSettings = async (req, res) => {
         const {
             isOnline,
             autoScheduleEnabled,
+            manualOverride,
             shift1Enabled,
             shift1Open,
             shift1Close,
@@ -154,6 +159,7 @@ exports.updateRestaurantSettings = async (req, res) => {
         // Update fields
         if (typeof isOnline !== 'undefined') settings.isOnline = isOnline;
         if (typeof autoScheduleEnabled !== 'undefined') settings.autoScheduleEnabled = autoScheduleEnabled;
+        if (typeof manualOverride !== 'undefined') settings.manualOverride = manualOverride;
         
         // Shift 1
         if (typeof shift1Enabled !== 'undefined') settings.shift1Enabled = shift1Enabled;
@@ -211,6 +217,7 @@ exports.resetRestaurantSettings = async (req, res) => {
         // Reset to defaults
         settings.isOnline = false;
         settings.autoScheduleEnabled = true;
+        settings.manualOverride = false;
         settings.shift1Enabled = true;
         settings.shift1Open = '09:00';
         settings.shift1Close = '17:00';
