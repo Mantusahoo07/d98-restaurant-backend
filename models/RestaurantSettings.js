@@ -10,26 +10,6 @@ const RestaurantSettingsSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
-    manualOverride: {
-        type: Boolean,
-        default: false
-    },
-    
-    // Offline Reason
-    offlineReason: {
-        reason: {
-            type: String,
-            default: null
-        },
-        duration: {
-            type: String,
-            default: null
-        },
-        setAt: {
-            type: Date,
-            default: null
-        }
-    },
     
     // Shift 1 - Morning/Day
     shift1Enabled: {
@@ -68,10 +48,6 @@ const RestaurantSettingsSchema = new mongoose.Schema({
         reason: {
             type: String,
             default: ''
-        },
-        estimatedReturn: {
-            type: String,
-            default: null
         },
         closedUntil: {
             type: Date,
