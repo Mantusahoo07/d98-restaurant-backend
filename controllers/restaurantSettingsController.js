@@ -51,7 +51,8 @@ const calculateRestaurantStatus = (settings) => {
     let currentShift = null;
     let offlineMessage = null;
     
-    // If manually overridden, just return the manual state
+    // CRITICAL: If manual override is true, ALWAYS use the manual state
+    // Never auto-change based on time when manual override is active
     if (settings.manualOverride) {
         isOpen = settings.isOnline;
         
@@ -60,17 +61,24 @@ const calculateRestaurantStatus = (settings) => {
             offlineMessage = {
                 reason: settings.offlineReason.reason,
                 duration: settings.offlineReason.duration,
-                setAt: settings.offlineReason.setAt
+                setAt: settings.offlineReason.setAt,
+                message: getOfflineMessage(settings.offlineReason)
             };
         }
-    } else if (settings.specialClosing.isClosed) {
+        
+        console.log(`Manual override active - status forced to: ${isOpen ? 'OPEN' : 'CLOSED'}`);
+    } 
+    // If special closing is active
+    else if (settings.specialClosing.isClosed) {
         isOpen = false;
         offlineMessage = {
             reason: 'temporarily_closed',
             message: settings.specialClosing.reason,
             estimatedReturn: settings.specialClosing.estimatedReturn
         };
-    } else {
+    } 
+    // Normal auto-schedule mode
+    else {
         if (settings.autoScheduleEnabled) {
             if (settings.shift1Enabled) {
                 if (currentTime >= settings.shift1Open && currentTime <= settings.shift1Close) {
@@ -90,6 +98,7 @@ const calculateRestaurantStatus = (settings) => {
         }
     }
     
+    // Calculate next opening time only if NOT in manual override mode
     if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled && !settings.manualOverride) {
         if (settings.shift1Enabled && currentTime < settings.shift1Open) {
             nextOpenTime = settings.shift1Open;
@@ -126,6 +135,38 @@ const calculateRestaurantStatus = (settings) => {
         autoScheduleEnabled: settings.autoScheduleEnabled,
         lastUpdated: settings.lastUpdatedAt
     };
+};
+
+// Helper function to get user-friendly offline message
+const getOfflineMessage = (offlineReason) => {
+    if (!offlineReason || !offlineReason.reason) return null;
+    
+    const reasonMap = {
+        'out_of_stock': 'Items out of stock',
+        'kitchen_full': 'Kitchen is full',
+        'staff_unavailable': 'Delivery staff unavailable',
+        'temporarily_closed': 'Temporarily closed'
+    };
+    
+    const reasonText = reasonMap[offlineReason.reason] || offlineReason.reason;
+    
+    if (!offlineReason.duration) return reasonText;
+    
+    const durationMap = {
+        '30min': 'Will be back in 30 minutes',
+        '1hour': 'Will be back in 1 hour',
+        '2hours': 'Will be back in 2 hours',
+        'manual': 'Will be back when turned on manually',
+        'next_shift': 'Will be back at next shift',
+        'tomorrow': 'Will be back tomorrow'
+    };
+    
+    if (offlineReason.duration.includes('T')) {
+        const date = new Date(offlineReason.duration);
+        return `${reasonText} - Back on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
+    }
+    
+    return `${reasonText} - ${durationMap[offlineReason.duration] || ''}`;
 };
 
 // ==================== ADMIN ENDPOINTS (Protected) ====================
@@ -174,10 +215,19 @@ exports.updateRestaurantSettings = async (req, res) => {
             settings = new RestaurantSettings();
         }
 
+        // CRITICAL: When manually toggling, always set manualOverride to true
+        // This ensures auto-schedule doesn't override the manual setting
+        if (typeof manualOverride !== 'undefined') {
+            settings.manualOverride = manualOverride;
+        } else if (typeof isOnline !== 'undefined') {
+            // If isOnline is being updated but manualOverride not specified,
+            // assume this is a manual action and set manualOverride to true
+            settings.manualOverride = true;
+        }
+
         // Update fields
         if (typeof isOnline !== 'undefined') settings.isOnline = isOnline;
         if (typeof autoScheduleEnabled !== 'undefined') settings.autoScheduleEnabled = autoScheduleEnabled;
-        if (typeof manualOverride !== 'undefined') settings.manualOverride = manualOverride;
         
         // Handle offline reason
         if (offlineReason) {
@@ -222,6 +272,8 @@ exports.updateRestaurantSettings = async (req, res) => {
         const updatedStatus = calculateRestaurantStatus(settings);
         broadcastRestaurantStatus(updatedStatus);
 
+        console.log(`✅ Restaurant settings updated - isOnline: ${settings.isOnline}, manualOverride: ${settings.manualOverride}`);
+
         res.json({
             success: true,
             message: 'Restaurant settings updated successfully',
@@ -251,7 +303,7 @@ exports.resetRestaurantSettings = async (req, res) => {
         // Reset to defaults
         settings.isOnline = false;
         settings.autoScheduleEnabled = true;
-        settings.manualOverride = false;
+        settings.manualOverride = false; // IMPORTANT: Reset manual override
         settings.offlineReason = {
             reason: null,
             duration: null,
@@ -303,9 +355,21 @@ exports.getRestaurantStatus = async (req, res) => {
         const settings = await RestaurantSettings.getSettings();
         const status = calculateRestaurantStatus(settings);
         
+        // Add user-friendly message for customers
+        let customerMessage = status.isOpen ? 'Restaurant is open' : 'Restaurant is currently closed';
+        
+        if (!status.isOpen && status.offlineMessage) {
+            customerMessage = status.offlineMessage.message || status.offlineMessage.reason;
+        } else if (!status.isOpen && status.nextOpenTime) {
+            customerMessage = `Opens at ${status.nextOpenTime}`;
+        }
+        
         res.json({
             success: true,
-            data: status
+            data: {
+                ...status,
+                customerMessage
+            }
         });
         
     } catch (error) {
