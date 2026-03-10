@@ -50,11 +50,15 @@ const calculateRestaurantStatus = (settings) => {
     let nextOpenTime = null;
     let currentShift = null;
     let offlineMessage = null;
+    let statusSource = 'auto';
     
-    // CRITICAL: If manual override is true, ALWAYS use the manual state
-    // Never auto-change based on time when manual override is active
+    // CRITICAL: If manual override is true, ONLY use the manual isOnline setting
+    // Completely ignore auto schedule when manual override is active
     if (settings.manualOverride) {
         isOpen = settings.isOnline;
+        statusSource = 'manual';
+        
+        console.log(`🔧 Manual override ACTIVE - status forced to: ${isOpen ? 'OPEN' : 'CLOSED'} (ignoring schedule)`);
         
         // Add offline reason if restaurant is closed
         if (!isOpen && settings.offlineReason) {
@@ -65,49 +69,54 @@ const calculateRestaurantStatus = (settings) => {
                 message: getOfflineMessage(settings.offlineReason)
             };
         }
-        
-        console.log(`Manual override active - status forced to: ${isOpen ? 'OPEN' : 'CLOSED'}`);
     } 
-    // If special closing is active
+    // If special closing is active (temporary closing)
     else if (settings.specialClosing.isClosed) {
         isOpen = false;
+        statusSource = 'special_closing';
         offlineMessage = {
             reason: 'temporarily_closed',
             message: settings.specialClosing.reason,
             estimatedReturn: settings.specialClosing.estimatedReturn
         };
     } 
-    // Normal auto-schedule mode
+    // Auto-schedule mode (manual override is OFF)
     else {
         if (settings.autoScheduleEnabled) {
+            // Check shift 1
             if (settings.shift1Enabled) {
                 if (currentTime >= settings.shift1Open && currentTime <= settings.shift1Close) {
                     isOpen = true;
                     currentShift = 'Shift 1';
+                    statusSource = 'schedule_shift1';
                 }
             }
             
+            // Check shift 2 if not already open
             if (!isOpen && settings.shift2Enabled) {
                 if (currentTime >= settings.shift2Open && currentTime <= settings.shift2Close) {
                     isOpen = true;
                     currentShift = 'Shift 2';
+                    statusSource = 'schedule_shift2';
+                }
+            }
+            
+            // If still not open, calculate next opening time
+            if (!isOpen) {
+                statusSource = 'schedule_closed';
+                if (settings.shift1Enabled && currentTime < settings.shift1Open) {
+                    nextOpenTime = settings.shift1Open;
+                } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
+                    nextOpenTime = settings.shift2Open;
+                } else if (settings.shift1Enabled) {
+                    // Next day's shift 1
+                    nextOpenTime = settings.shift1Open;
                 }
             }
         } else {
+            // Auto schedule disabled - use manual isOnline setting
             isOpen = settings.isOnline;
-        }
-    }
-    
-    // Calculate next opening time only if NOT in manual override mode
-    if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled && !settings.manualOverride) {
-        if (settings.shift1Enabled && currentTime < settings.shift1Open) {
-            nextOpenTime = settings.shift1Open;
-        } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
-            nextOpenTime = settings.shift2Open;
-        } else {
-            if (settings.shift1Enabled) {
-                nextOpenTime = settings.shift1Open;
-            }
+            statusSource = 'manual_no_schedule';
         }
     }
     
@@ -118,6 +127,7 @@ const calculateRestaurantStatus = (settings) => {
         isTemporarilyClosed: settings.specialClosing.isClosed,
         temporaryClosingReason: settings.specialClosing.reason,
         manualOverride: settings.manualOverride,
+        statusSource,
         offlineReason: settings.offlineReason,
         offlineMessage,
         shifts: {
@@ -161,9 +171,13 @@ const getOfflineMessage = (offlineReason) => {
         'tomorrow': 'Will be back tomorrow'
     };
     
-    if (offlineReason.duration.includes('T')) {
-        const date = new Date(offlineReason.duration);
-        return `${reasonText} - Back on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
+    if (offlineReason.duration && offlineReason.duration.includes('T')) {
+        try {
+            const date = new Date(offlineReason.duration);
+            return `${reasonText} - Back on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
+        } catch (e) {
+            return reasonText;
+        }
     }
     
     return `${reasonText} - ${durationMap[offlineReason.duration] || ''}`;
@@ -303,7 +317,7 @@ exports.resetRestaurantSettings = async (req, res) => {
         // Reset to defaults
         settings.isOnline = false;
         settings.autoScheduleEnabled = true;
-        settings.manualOverride = false; // IMPORTANT: Reset manual override
+        settings.manualOverride = false;
         settings.offlineReason = {
             reason: null,
             duration: null,
@@ -358,10 +372,14 @@ exports.getRestaurantStatus = async (req, res) => {
         // Add user-friendly message for customers
         let customerMessage = status.isOpen ? 'Restaurant is open' : 'Restaurant is currently closed';
         
-        if (!status.isOpen && status.offlineMessage) {
-            customerMessage = status.offlineMessage.message || status.offlineMessage.reason;
-        } else if (!status.isOpen && status.nextOpenTime) {
-            customerMessage = `Opens at ${status.nextOpenTime}`;
+        if (!status.isOpen) {
+            if (status.offlineMessage) {
+                customerMessage = status.offlineMessage.message || status.offlineMessage.reason;
+            } else if (status.nextOpenTime) {
+                customerMessage = `Opens at ${status.nextOpenTime}`;
+            } else if (status.manualOverride) {
+                customerMessage = 'Restaurant is temporarily closed by management';
+            }
         }
         
         res.json({
