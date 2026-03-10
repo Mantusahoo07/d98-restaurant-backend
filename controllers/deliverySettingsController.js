@@ -1,278 +1,172 @@
-const RestaurantSettings = require('../models/RestaurantSettings');
+// controllers/deliverySettingsController.js
+const DeliverySettings = require('../models/DeliverySettings');
 
-// Store connected clients for real-time updates
-let connectedClients = [];
-
-// Function to broadcast restaurant status to all connected clients
-const broadcastRestaurantStatus = (status) => {
-    connectedClients.forEach(client => {
-        try {
-            client.res.write(`data: ${JSON.stringify(status)}\n\n`);
-        } catch (error) {
-            console.error('Error broadcasting to client:', error);
+// Get delivery settings
+exports.getDeliverySettings = async (req, res) => {
+    try {
+        console.log('📦 Fetching delivery settings for admin:', req.user.email);
+        
+        let settings = await DeliverySettings.findOne();
+        
+        if (!settings) {
+            console.log('🆕 No delivery settings found, creating defaults...');
+            // Create default settings
+            settings = await DeliverySettings.create({});
+            console.log('✅ Default delivery settings created');
         }
-    });
+        
+        console.log('✅ Delivery settings loaded successfully');
+        res.json({
+            success: true,
+            data: settings
+        });
+    } catch (error) {
+        console.error('❌ Error fetching delivery settings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching delivery settings',
+            error: error.message
+        });
+    }
 };
 
-// SSE endpoint for real-time restaurant status
-exports.restaurantStatusSSE = (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    // Send initial data
-    RestaurantSettings.getSettings().then(settings => {
-        const status = calculateRestaurantStatus(settings);
-        res.write(`data: ${JSON.stringify(status)}\n\n`);
-    });
-    
-    // Add client to connected list
-    const clientId = Date.now();
-    const newClient = {
-        id: clientId,
-        res
-    };
-    connectedClients.push(newClient);
-    
-    // Remove client on connection close
-    req.on('close', () => {
-        connectedClients = connectedClients.filter(client => client.id !== clientId);
-    });
-};
-
-// Helper function to calculate restaurant status
-const calculateRestaurantStatus = (settings) => {
-    const now = new Date();
-    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    
-    let isOpen = false;
-    let nextOpenTime = null;
-    let currentShift = null;
-    
-    // If manually overridden, just return the manual state
-    if (settings.manualOverride) {
-        isOpen = settings.isOnline;
-    } else if (settings.specialClosing.isClosed) {
-        isOpen = false;
-    } else {
-        if (settings.autoScheduleEnabled) {
-            if (settings.shift1Enabled) {
-                if (currentTime >= settings.shift1Open && currentTime <= settings.shift1Close) {
-                    isOpen = true;
-                    currentShift = 'Shift 1';
+// Update delivery settings
+exports.updateDeliverySettings = async (req, res) => {
+    try {
+        console.log('✏️ Updating delivery settings by:', req.user.email);
+        console.log('Request body:', req.body);
+        
+        const {
+            maxDeliveryRadius,
+            baseDeliveryCharge,
+            additionalChargePerKm,
+            freeDeliveryWithin5kmThreshold,
+            freeDeliveryUpto10kmThreshold,
+            platformFeePercent,
+            gstPercent,
+            restaurantLat,
+            restaurantLng
+        } = req.body;
+        
+        // Validate required fields
+        if (!maxDeliveryRadius || maxDeliveryRadius <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Maximum delivery radius is required'
+            });
+        }
+        
+        if (maxDeliveryRadius > 50) {
+            return res.status(400).json({
+                success: false,
+                message: 'Maximum delivery radius cannot exceed 50km'
+            });
+        }
+        
+        let settings = await DeliverySettings.findOne();
+        
+        if (!settings) {
+            // Create new settings
+            settings = await DeliverySettings.create({
+                maxDeliveryRadius,
+                baseDeliveryCharge: baseDeliveryCharge || 20,
+                additionalChargePerKm: additionalChargePerKm || 10,
+                freeDeliveryWithin5kmThreshold: freeDeliveryWithin5kmThreshold || 999,
+                freeDeliveryUpto10kmThreshold: freeDeliveryUpto10kmThreshold || 1499,
+                platformFeePercent: platformFeePercent || 3,
+                gstPercent: gstPercent || 5,
+                restaurantLocation: {
+                    lat: restaurantLat || 20.6952266,
+                    lng: restaurantLng || 83.488972
                 }
+            });
+            console.log('✅ New delivery settings created');
+        } else {
+            // Update existing settings
+            settings.maxDeliveryRadius = maxDeliveryRadius;
+            if (baseDeliveryCharge !== undefined) settings.baseDeliveryCharge = baseDeliveryCharge;
+            if (additionalChargePerKm !== undefined) settings.additionalChargePerKm = additionalChargePerKm;
+            if (freeDeliveryWithin5kmThreshold !== undefined) settings.freeDeliveryWithin5kmThreshold = freeDeliveryWithin5kmThreshold;
+            if (freeDeliveryUpto10kmThreshold !== undefined) settings.freeDeliveryUpto10kmThreshold = freeDeliveryUpto10kmThreshold;
+            if (platformFeePercent !== undefined) settings.platformFeePercent = platformFeePercent;
+            if (gstPercent !== undefined) settings.gstPercent = gstPercent;
+            
+            if (restaurantLat !== undefined || restaurantLng !== undefined) {
+                settings.restaurantLocation = {
+                    lat: restaurantLat !== undefined ? restaurantLat : settings.restaurantLocation.lat,
+                    lng: restaurantLng !== undefined ? restaurantLng : settings.restaurantLocation.lng
+                };
             }
             
-            if (!isOpen && settings.shift2Enabled) {
-                if (currentTime >= settings.shift2Open && currentTime <= settings.shift2Close) {
-                    isOpen = true;
-                    currentShift = 'Shift 2';
-                }
-            }
-        } else {
-            isOpen = settings.isOnline;
+            await settings.save();
+            console.log('✅ Delivery settings updated');
         }
-    }
-    
-    if (!isOpen && !settings.specialClosing.isClosed && settings.autoScheduleEnabled && !settings.manualOverride) {
-        if (settings.shift1Enabled && currentTime < settings.shift1Open) {
-            nextOpenTime = settings.shift1Open;
-        } else if (settings.shift2Enabled && currentTime < settings.shift2Open) {
-            nextOpenTime = settings.shift2Open;
-        } else {
-            if (settings.shift1Enabled) {
-                nextOpenTime = settings.shift1Open;
-            }
-        }
-    }
-    
-    return {
-        isOpen,
-        currentShift,
-        nextOpenTime,
-        isTemporarilyClosed: settings.specialClosing.isClosed,
-        temporaryClosingReason: settings.specialClosing.reason,
-        manualOverride: settings.manualOverride,
-        shifts: {
-            shift1: {
-                enabled: settings.shift1Enabled,
-                open: settings.shift1Open,
-                close: settings.shift1Close
-            },
-            shift2: {
-                enabled: settings.shift2Enabled,
-                open: settings.shift2Open,
-                close: settings.shift2Close
-            }
-        },
-        autoScheduleEnabled: settings.autoScheduleEnabled,
-        lastUpdated: settings.lastUpdatedAt
-    };
-};
-
-// ==================== ADMIN ENDPOINTS (Protected) ====================
-
-// Get restaurant settings for admin
-exports.getRestaurantSettings = async (req, res) => {
-    try {
-        console.log('🏪 Admin fetching restaurant settings');
-        const settings = await RestaurantSettings.getSettings();
         
         res.json({
             success: true,
+            message: 'Delivery settings updated successfully',
             data: settings
         });
     } catch (error) {
-        console.error('❌ Error fetching restaurant settings:', error);
+        console.error('❌ Error updating delivery settings:', error);
         res.status(500).json({
             success: false,
-            message: 'Error fetching restaurant settings',
+            message: 'Error updating delivery settings',
             error: error.message
         });
     }
 };
 
-// Update restaurant settings
-exports.updateRestaurantSettings = async (req, res) => {
+// Reset delivery settings to defaults
+exports.resetDeliverySettings = async (req, res) => {
     try {
-        console.log('✏️ Admin updating restaurant settings');
-        const {
-            isOnline,
-            autoScheduleEnabled,
-            manualOverride,
-            shift1Enabled,
-            shift1Open,
-            shift1Close,
-            shift2Enabled,
-            shift2Open,
-            shift2Close,
-            specialClosing
-        } = req.body;
-
-        let settings = await RestaurantSettings.findOne();
+        console.log('🔄 Resetting delivery settings to defaults by:', req.user.email);
         
-        if (!settings) {
-            settings = new RestaurantSettings();
-        }
-
-        // Update fields
-        if (typeof isOnline !== 'undefined') settings.isOnline = isOnline;
-        if (typeof autoScheduleEnabled !== 'undefined') settings.autoScheduleEnabled = autoScheduleEnabled;
-        if (typeof manualOverride !== 'undefined') settings.manualOverride = manualOverride;
+        let settings = await DeliverySettings.findOne();
         
-        // Shift 1
-        if (typeof shift1Enabled !== 'undefined') settings.shift1Enabled = shift1Enabled;
-        if (shift1Open) settings.shift1Open = shift1Open;
-        if (shift1Close) settings.shift1Close = shift1Close;
-        
-        // Shift 2
-        if (typeof shift2Enabled !== 'undefined') settings.shift2Enabled = shift2Enabled;
-        if (shift2Open) settings.shift2Open = shift2Open;
-        if (shift2Close) settings.shift2Close = shift2Close;
-        
-        // Special Closing
-        if (specialClosing) {
-            settings.specialClosing = {
-                ...settings.specialClosing,
-                ...specialClosing
-            };
-        }
-
-        settings.lastUpdatedBy = req.user._id;
-        settings.lastUpdatedAt = new Date();
-
-        await settings.save();
-
-        // Calculate and broadcast updated status
-        const updatedStatus = calculateRestaurantStatus(settings);
-        broadcastRestaurantStatus(updatedStatus);
-
-        res.json({
-            success: true,
-            message: 'Restaurant settings updated successfully',
-            data: settings
-        });
-    } catch (error) {
-        console.error('❌ Error updating restaurant settings:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error updating restaurant settings',
-            error: error.message
-        });
-    }
-};
-
-// Reset to defaults
-exports.resetRestaurantSettings = async (req, res) => {
-    try {
-        console.log('🔄 Admin resetting restaurant settings to defaults');
-        
-        let settings = await RestaurantSettings.findOne();
-        
-        if (!settings) {
-            settings = new RestaurantSettings();
-        }
-
-        // Reset to defaults
-        settings.isOnline = false;
-        settings.autoScheduleEnabled = true;
-        settings.manualOverride = false;
-        settings.shift1Enabled = true;
-        settings.shift1Open = '09:00';
-        settings.shift1Close = '17:00';
-        settings.shift2Enabled = true;
-        settings.shift2Open = '18:00';
-        settings.shift2Close = '23:00';
-        settings.specialClosing = {
-            isClosed: false,
-            reason: '',
-            closedUntil: null
+        const defaultSettings = {
+            maxDeliveryRadius: 10,
+            baseDeliveryCharge: 20,
+            additionalChargePerKm: 10,
+            freeDeliveryWithin5kmThreshold: 999,
+            freeDeliveryUpto10kmThreshold: 1499,
+            platformFeePercent: 3,
+            gstPercent: 5,
+            restaurantLocation: {
+                lat: 20.6952266,
+                lng: 83.488972
+            }
         };
-        settings.lastUpdatedBy = req.user._id;
-        settings.lastUpdatedAt = new Date();
-
-        await settings.save();
-
-        // Calculate and broadcast updated status
-        const updatedStatus = calculateRestaurantStatus(settings);
-        broadcastRestaurantStatus(updatedStatus);
-
+        
+        if (!settings) {
+            settings = await DeliverySettings.create(defaultSettings);
+            console.log('✅ Default delivery settings created');
+        } else {
+            // Update with default values
+            settings.maxDeliveryRadius = defaultSettings.maxDeliveryRadius;
+            settings.baseDeliveryCharge = defaultSettings.baseDeliveryCharge;
+            settings.additionalChargePerKm = defaultSettings.additionalChargePerKm;
+            settings.freeDeliveryWithin5kmThreshold = defaultSettings.freeDeliveryWithin5kmThreshold;
+            settings.freeDeliveryUpto10kmThreshold = defaultSettings.freeDeliveryUpto10kmThreshold;
+            settings.platformFeePercent = defaultSettings.platformFeePercent;
+            settings.gstPercent = defaultSettings.gstPercent;
+            settings.restaurantLocation = defaultSettings.restaurantLocation;
+            
+            await settings.save();
+            console.log('✅ Delivery settings reset to defaults');
+        }
+        
         res.json({
             success: true,
-            message: 'Restaurant settings reset to defaults',
+            message: 'Delivery settings reset to defaults',
             data: settings
         });
     } catch (error) {
-        console.error('❌ Error resetting restaurant settings:', error);
+        console.error('❌ Error resetting delivery settings:', error);
         res.status(500).json({
             success: false,
-            message: 'Error resetting restaurant settings',
+            message: 'Error resetting delivery settings',
             error: error.message
-        });
-    }
-};
-
-// ==================== PUBLIC ENDPOINT (No Auth) ====================
-
-// Get restaurant status for customers
-exports.getRestaurantStatus = async (req, res) => {
-    try {
-        console.log('👥 Public fetching restaurant status');
-        
-        const settings = await RestaurantSettings.getSettings();
-        const status = calculateRestaurantStatus(settings);
-        
-        res.json({
-            success: true,
-            data: status
-        });
-        
-    } catch (error) {
-        console.error('❌ Error fetching restaurant status:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching restaurant status'
         });
     }
 };
