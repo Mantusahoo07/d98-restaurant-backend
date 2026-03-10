@@ -61,7 +61,7 @@ const calculateRestaurantStatus = (settings) => {
         console.log(`🔧 Manual override ACTIVE - status forced to: ${isOpen ? 'OPEN' : 'CLOSED'} (ignoring schedule)`);
         
         // Add offline reason if restaurant is closed
-        if (!isOpen && settings.offlineReason) {
+        if (!isOpen && settings.offlineReason && settings.offlineReason.reason) {
             offlineMessage = {
                 reason: settings.offlineReason.reason,
                 duration: settings.offlineReason.duration,
@@ -120,6 +120,8 @@ const calculateRestaurantStatus = (settings) => {
         }
     }
     
+    console.log(`📍 Status calculated - isOpen: ${isOpen}, source: ${statusSource}, manualOverride: ${settings.manualOverride}, nextOpen: ${nextOpenTime || 'N/A'}`);
+    
     return {
         isOpen,
         currentShift,
@@ -163,12 +165,12 @@ const getOfflineMessage = (offlineReason) => {
     if (!offlineReason.duration) return reasonText;
     
     const durationMap = {
-        '30min': 'Will be back in 30 minutes',
-        '1hour': 'Will be back in 1 hour',
-        '2hours': 'Will be back in 2 hours',
-        'manual': 'Will be back when turned on manually',
-        'next_shift': 'Will be back at next shift',
-        'tomorrow': 'Will be back tomorrow'
+        '30min': '30 minutes',
+        '1hour': '1 hour',
+        '2hours': '2 hours',
+        'manual': 'Manual',
+        'next_shift': 'Next shift',
+        'tomorrow': 'Tomorrow'
     };
     
     if (offlineReason.duration && offlineReason.duration.includes('T')) {
@@ -180,7 +182,8 @@ const getOfflineMessage = (offlineReason) => {
         }
     }
     
-    return `${reasonText} - ${durationMap[offlineReason.duration] || ''}`;
+    const durationText = durationMap[offlineReason.duration] || offlineReason.duration;
+    return `${reasonText} - Returns in ${durationText}`;
 };
 
 // ==================== ADMIN ENDPOINTS (Protected) ====================
@@ -191,9 +194,16 @@ exports.getRestaurantSettings = async (req, res) => {
         console.log('🏪 Admin fetching restaurant settings');
         const settings = await RestaurantSettings.getSettings();
         
+        // Calculate status to include nextOpenTime
+        const status = calculateRestaurantStatus(settings);
+        
         res.json({
             success: true,
-            data: settings
+            data: {
+                ...settings.toObject(),
+                nextOpenTime: status.nextOpenTime,
+                statusSource: status.statusSource
+            }
         });
     } catch (error) {
         console.error('❌ Error fetching restaurant settings:', error);
@@ -291,7 +301,11 @@ exports.updateRestaurantSettings = async (req, res) => {
         res.json({
             success: true,
             message: 'Restaurant settings updated successfully',
-            data: settings
+            data: {
+                ...settings.toObject(),
+                nextOpenTime: updatedStatus.nextOpenTime,
+                statusSource: updatedStatus.statusSource
+            }
         });
     } catch (error) {
         console.error('❌ Error updating restaurant settings:', error);
@@ -347,7 +361,11 @@ exports.resetRestaurantSettings = async (req, res) => {
         res.json({
             success: true,
             message: 'Restaurant settings reset to defaults',
-            data: settings
+            data: {
+                ...settings.toObject(),
+                nextOpenTime: updatedStatus.nextOpenTime,
+                statusSource: updatedStatus.statusSource
+            }
         });
     } catch (error) {
         console.error('❌ Error resetting restaurant settings:', error);
@@ -375,6 +393,17 @@ exports.getRestaurantStatus = async (req, res) => {
         if (!status.isOpen) {
             if (status.offlineMessage) {
                 customerMessage = status.offlineMessage.message || status.offlineMessage.reason;
+                if (status.offlineMessage.duration && !status.offlineMessage.duration.includes('T')) {
+                    const durationMap = {
+                        '30min': '30 minutes',
+                        '1hour': '1 hour',
+                        '2hours': '2 hours',
+                        'manual': 'later',
+                        'next_shift': 'next shift',
+                        'tomorrow': 'tomorrow'
+                    };
+                    customerMessage += ` (opens in ${durationMap[status.offlineMessage.duration] || status.offlineMessage.duration})`;
+                }
             } else if (status.nextOpenTime) {
                 customerMessage = `Opens at ${status.nextOpenTime}`;
             } else if (status.manualOverride) {
