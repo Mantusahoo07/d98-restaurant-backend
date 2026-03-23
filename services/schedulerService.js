@@ -11,22 +11,27 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Function to check if restaurant should be open based on current time and auto schedule setting
+// Function to check if restaurant should be open based on current time
 const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     
     console.log(`\n=== SHOULD BE OPEN CHECK ===`);
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
-    console.log(`Auto Schedule Enabled: ${settings.autoScheduleEnabled}`);
     
-    // If auto schedule is disabled, return current manual status
+    // If auto schedule is OFF, return current manual status
     if (!settings.autoScheduleEnabled) {
         console.log(`⚙️ Auto schedule disabled, using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
         return settings.isOnline;
     }
     
-    // Check manual override (only applies when auto schedule is on)
+    // Check special closing
+    if (settings.specialClosing?.isClosed) {
+        console.log(`❌ Restaurant temporarily closed`);
+        return false;
+    }
+    
+    // Check manual override (temporary override from header)
     if (settings.manualOverride && settings.manualOverrideExpiry) {
         const expiryTime = new Date(settings.manualOverrideExpiry);
         if (expiryTime > now) {
@@ -38,11 +43,6 @@ const shouldBeOpen = (settings) => {
             // We'll clear this in the update function
             return null;
         }
-    }
-    
-    if (settings.specialClosing?.isClosed) {
-        console.log(`❌ Restaurant temporarily closed`);
-        return false;
     }
     
     console.log(`📅 Auto schedule enabled, checking shifts...`);
@@ -80,7 +80,7 @@ const shouldBeOpen = (settings) => {
     console.log(`❌ Not in any shift - Should be CLOSED`);
     return false;
 };
-// Function to update restaurant status based on schedule
+
 // Function to update restaurant status based on schedule
 const updateStatusFromSchedule = async () => {
     try {
@@ -104,7 +104,6 @@ const updateStatusFromSchedule = async () => {
                 needsSave = true;
             } else {
                 console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
-                // Don't change status while manual override is active
                 return settings.isOnline;
             }
         }
