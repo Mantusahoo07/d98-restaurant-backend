@@ -11,6 +11,16 @@ const RestaurantSettingsSchema = new mongoose.Schema({
         default: true
     },
     
+    // Manual Override - For temporary overrides by admin
+    manualOverride: {
+        type: Boolean,
+        default: false
+    },
+    manualOverrideExpiry: {
+        type: Date,
+        default: null
+    },
+    
     // Shift 1 - Morning/Day
     shift1Enabled: {
         type: Boolean,
