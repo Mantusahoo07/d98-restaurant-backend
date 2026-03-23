@@ -20,18 +20,13 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/d98-resta
 
 mongoose.connection.on('connected', () => {
   console.log('✅ Connected to MongoDB');
-  
-  // Start the restaurant status scheduler after DB connection
-  const restaurantScheduler = require('./services/schedulerService');
-  restaurantScheduler.start();
-  console.log('✅ Restaurant status scheduler started');
 });
 
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
 });
 
-// ==================== PUBLIC ENDPOINTS (NO AUTH) - MUST BE BEFORE AUTH MIDDLEWARE ====================
+// ==================== PUBLIC ENDPOINTS (NO AUTH) ====================
 
 // Health check - Public
 app.get('/api/health', (req, res) => {
@@ -125,43 +120,6 @@ app.post('/api/users/link-account', auth, async (req, res) => {
   }
 });
 
-// Add this temporary debug endpoint
-app.get('/api/debug-routes', (req, res) => {
-  const routes = [];
-  
-  // Get all registered routes from Express app
-  app._router.stack.forEach(middleware => {
-    if (middleware.route) {
-      // Routes registered directly
-      routes.push({
-        path: middleware.route.path,
-        methods: Object.keys(middleware.route.methods)
-      });
-    } else if (middleware.name === 'router') {
-      // Routes registered via router
-      middleware.handle.stack.forEach(handler => {
-        if (handler.route) {
-          const path = middleware.regexp.source
-            .replace('\\/?(?=\\/|$)', '')
-            .replace(/\\\//g, '/')
-            .replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':param');
-          
-          routes.push({
-            path: path + handler.route.path,
-            methods: Object.keys(handler.route.methods)
-          });
-        }
-      });
-    }
-  });
-  
-  res.json({
-    success: true,
-    routes: routes,
-    userControllerLoaded: typeof userController !== 'undefined'
-  });
-});
-
 // ==================== REAL-TIME UPDATES (SSE) ====================
 // Store connected clients for order updates
 let orderUpdateClients = [];
@@ -250,138 +208,6 @@ app.use('/api/admin', adminRouter);
 app.use('/api/delivery', deliveryRouter);
 app.get('/api/restaurant-status', restaurantSettingsController.getRestaurantStatus);
 
-// Add this debug endpoint to check scheduler status
-app.get('/api/admin/scheduler-status', auth, async (req, res) => {
-  try {
-    const restaurantScheduler = require('./services/schedulerService');
-    const RestaurantSettings = require('./models/RestaurantSettings');
-    const settings = await RestaurantSettings.findOne();
-    
-    res.json({
-      success: true,
-      schedulerRunning: restaurantScheduler.isRunning,
-      currentSettings: settings ? {
-        isOnline: settings.isOnline,
-        autoScheduleEnabled: settings.autoScheduleEnabled,
-        manualOverride: settings.manualOverride,
-        manualOverrideExpiry: settings.manualOverrideExpiry,
-        shift1Enabled: settings.shift1Enabled,
-        shift1Open: settings.shift1Open,
-        shift1Close: settings.shift1Close,
-        shift2Enabled: settings.shift2Enabled,
-        shift2Open: settings.shift2Open,
-        shift2Close: settings.shift2Close,
-        specialClosing: settings.specialClosing,
-        lastUpdatedAt: settings.lastUpdatedAt
-      } : null,
-      nextRun: 'Every minute'
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Add scheduler debug endpoint
-app.get('/api/admin/scheduler-debug', auth, async (req, res) => {
-    try {
-        const RestaurantSettings = require('./models/RestaurantSettings');
-        const settings = await RestaurantSettings.findOne();
-        const now = new Date();
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
-        
-        // Helper function to convert time to minutes
-        const timeToMinutes = (timeStr) => {
-            if (!timeStr) return null;
-            const [hours, minutes] = timeStr.split(':').map(Number);
-            return hours * 60 + minutes;
-        };
-        
-        // Calculate if should be open
-        const openTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Open) : null;
-        const closeTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Close) : null;
-        const openTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Open) : null;
-        const closeTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Close) : null;
-        
-        const inShift1 = settings.shift1Enabled && openTime1 !== null && closeTime1 !== null && 
-                        currentMinutes >= openTime1 && currentMinutes < closeTime1;
-        const inShift2 = settings.shift2Enabled && openTime2 !== null && closeTime2 !== null && 
-                        currentMinutes >= openTime2 && currentMinutes < closeTime2;
-        const shouldBeOpenNow = inShift1 || inShift2;
-        
-        // Get scheduler service status
-        const restaurantScheduler = require('./services/schedulerService');
-        
-        res.json({
-            success: true,
-            currentTime: now.toLocaleTimeString(),
-            currentMinutes,
-            schedulerRunning: restaurantScheduler.isRunning,
-            settings: {
-                autoScheduleEnabled: settings.autoScheduleEnabled,
-                isOnline: settings.isOnline,
-                manualOverride: settings.manualOverride,
-                manualOverrideExpiry: settings.manualOverrideExpiry,
-                shift1: {
-                    enabled: settings.shift1Enabled,
-                    open: settings.shift1Open,
-                    close: settings.shift1Close,
-                    openMinutes: openTime1,
-                    closeMinutes: closeTime1,
-                    inShift: inShift1
-                },
-                shift2: {
-                    enabled: settings.shift2Enabled,
-                    open: settings.shift2Open,
-                    close: settings.shift2Close,
-                    openMinutes: openTime2,
-                    closeMinutes: closeTime2,
-                    inShift: inShift2
-                }
-            },
-            shouldBeOpenNow,
-            needsUpdate: shouldBeOpenNow !== settings.isOnline
-        });
-    } catch (error) {
-        console.error('Scheduler debug error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Add to your server.js or a test route
-app.get('/api/test-ors', async (req, res) => {
-  try {
-    const routeService = require('./services/routeService');
-    
-    // Test with your restaurant and a point ~1km away
-    const result = await routeService.getRoadDistance(
-      20.6952266, 83.488972,  // Restaurant
-      20.6852266, 83.498972    // Point ~1.5km away
-    );
-    
-    res.json({
-      success: true,
-      result: result,
-      apiStats: routeService.getApiStats()
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// ==================== DEBUG LOGGING ====================
-console.log('=== ROUTE DEBUG ===');
-console.log('✅ Admin router loaded');
-console.log('✅ Delivery router loaded');
-console.log('✅ DeliverySettings model loaded');
-console.log('✅ Public delivery settings endpoint registered at: /api/delivery-settings/public');
-console.log('✅ Order updates SSE endpoint registered at: /api/orders/updates');
-console.log('✅ Restaurant status SSE endpoint registered at: /api/restaurant-status/updates');
-console.log('✅ Scheduler status endpoint registered at: /api/admin/scheduler-status');
-console.log('✅ Scheduler debug endpoint registered at: /api/admin/scheduler-debug');
-
 // ==================== 404 HANDLER (MUST BE LAST) ====================
 app.use('*', (req, res) => {
   console.log(`❌ Route not found: ${req.originalUrl}`);
@@ -407,10 +233,6 @@ let server;
 
 const gracefulShutdown = async () => {
   console.log('🛑 Received shutdown signal, closing gracefully...');
-  
-  // Stop the scheduler
-  const restaurantScheduler = require('./services/schedulerService');
-  restaurantScheduler.stop();
   
   // Close HTTP server
   if (server) {
@@ -438,8 +260,6 @@ server = app.listen(PORT, () => {
   console.log(`🚚 Delivery API: http://localhost:${PORT}/api/delivery/profile`);
   console.log(`🔄 Order updates SSE: http://localhost:${PORT}/api/orders/updates`);
   console.log(`🏪 Restaurant status SSE: http://localhost:${PORT}/api/restaurant-status/updates`);
-  console.log(`⏰ Scheduler status: http://localhost:${PORT}/api/admin/scheduler-status`);
-  console.log(`🐛 Scheduler debug: http://localhost:${PORT}/api/admin/scheduler-debug`);
 });
 
 // Export broadcast function for use in other controllers
