@@ -11,15 +11,22 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Function to check if restaurant should be open based on current time
+// Function to check if restaurant should be open based on current time and auto schedule setting
 const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     
     console.log(`\n=== SHOULD BE OPEN CHECK ===`);
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
+    console.log(`Auto Schedule Enabled: ${settings.autoScheduleEnabled}`);
     
-    // Check manual override first
+    // If auto schedule is disabled, return current manual status
+    if (!settings.autoScheduleEnabled) {
+        console.log(`⚙️ Auto schedule disabled, using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
+        return settings.isOnline;
+    }
+    
+    // Check manual override first (only applies when auto schedule is on)
     if (settings.manualOverride && settings.manualOverrideExpiry) {
         const expiryTime = new Date(settings.manualOverrideExpiry);
         if (expiryTime > now) {
@@ -36,10 +43,6 @@ const shouldBeOpen = (settings) => {
     if (settings.specialClosing?.isClosed) {
         console.log(`❌ Restaurant temporarily closed`);
         return false;
-    }
-    if (!settings.autoScheduleEnabled) {
-        console.log(`⚙️ Auto schedule disabled, using manual: ${settings.isOnline}`);
-        return settings.isOnline;
     }
     
     console.log(`📅 Auto schedule enabled, checking shifts...`);
@@ -78,18 +81,13 @@ const shouldBeOpen = (settings) => {
     return false;
 };
 
-// Function to broadcast restaurant status (simplified - you can expand this)
-const broadcastRestaurantStatus = (status) => {
-    // This will be implemented if you have SSE clients
-    console.log(`📡 Broadcasting status: ${status ? 'OPEN' : 'CLOSED'}`);
-};
-
 // Function to update restaurant status based on schedule
 const updateStatusFromSchedule = async () => {
     try {
         const settings = await RestaurantSettings.findOne();
         if (!settings) return null;
         
+        // If auto schedule is disabled, don't update automatically
         if (!settings.autoScheduleEnabled) {
             console.log('⏭️ Auto schedule disabled, skipping automatic update');
             return null;
@@ -116,8 +114,12 @@ const updateStatusFromSchedule = async () => {
             
             console.log(`🔄 Schedule updated restaurant status: ${shouldBeOpenNow ? 'OPEN' : 'CLOSED'} at ${new Date().toLocaleTimeString()}`);
             
-            // Broadcast the updated status
-            broadcastRestaurantStatus(shouldBeOpenNow);
+            // Broadcast the updated status (if you have SSE)
+            try {
+                const restaurantController = require('../controllers/restaurantSettingsController');
+                const updatedStatus = restaurantController.calculateRestaurantStatus(settings);
+                // You would broadcast here if you have SSE clients
+            } catch (e) {}
             
             return shouldBeOpenNow;
         } else {
