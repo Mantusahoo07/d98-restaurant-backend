@@ -1003,4 +1003,63 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
+
+
+// Debug endpoint to check shift status
+router.get('/debug-shift-status', async (req, res) => {
+  try {
+    const settings = await RestaurantSettings.findOne();
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    const shift1Open = settings.shift1Open.split(':').map(Number);
+    const shift1Close = settings.shift1Close.split(':').map(Number);
+    const shift1OpenMinutes = shift1Open[0] * 60 + shift1Open[1];
+    const shift1CloseMinutes = shift1Close[0] * 60 + shift1Close[1];
+    
+    const shift2Open = settings.shift2Open.split(':').map(Number);
+    const shift2Close = settings.shift2Close.split(':').map(Number);
+    const shift2OpenMinutes = shift2Open[0] * 60 + shift2Open[1];
+    const shift2CloseMinutes = shift2Close[0] * 60 + shift2Close[1];
+    
+    const inShift1 = settings.shift1Enabled && currentMinutes >= shift1OpenMinutes && currentMinutes < shift1CloseMinutes;
+    const inShift2 = settings.shift2Enabled && currentMinutes >= shift2OpenMinutes && currentMinutes < shift2CloseMinutes;
+    const shouldBeOpen = inShift1 || inShift2;
+    
+    res.json({
+      success: true,
+      currentTime: now.toLocaleTimeString(),
+      currentMinutes,
+      shifts: {
+        shift1: {
+          enabled: settings.shift1Enabled,
+          open: settings.shift1Open,
+          close: settings.shift1Close,
+          openMinutes: shift1OpenMinutes,
+          closeMinutes: shift1CloseMinutes,
+          isActive: inShift1
+        },
+        shift2: {
+          enabled: settings.shift2Enabled,
+          open: settings.shift2Open,
+          close: settings.shift2Close,
+          openMinutes: shift2OpenMinutes,
+          closeMinutes: shift2CloseMinutes,
+          isActive: inShift2
+        }
+      },
+      shouldBeOpen,
+      actualIsOnline: settings.isOnline,
+      autoScheduleEnabled: settings.autoScheduleEnabled,
+      needsUpdate: shouldBeOpen !== settings.isOnline
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
+
+
+
 module.exports = router;
