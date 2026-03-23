@@ -1077,4 +1077,79 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
+
+
+// Debug endpoint to check scheduler and shift status
+router.get('/scheduler-debug', async (req, res) => {
+    try {
+        const settings = await RestaurantSettings.findOne();
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        
+        // Helper function to convert time to minutes
+        const timeToMinutes = (timeStr) => {
+            if (!timeStr) return null;
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return hours * 60 + minutes;
+        };
+        
+        // Calculate if should be open
+        const openTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Open) : null;
+        const closeTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Close) : null;
+        const openTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Open) : null;
+        const closeTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Close) : null;
+        
+        const inShift1 = settings.shift1Enabled && openTime1 !== null && closeTime1 !== null && 
+                        currentMinutes >= openTime1 && currentMinutes < closeTime1;
+        const inShift2 = settings.shift2Enabled && openTime2 !== null && closeTime2 !== null && 
+                        currentMinutes >= openTime2 && currentMinutes < closeTime2;
+        const shouldBeOpenNow = inShift1 || inShift2;
+        
+        // Get scheduler service status
+        let schedulerRunning = false;
+        try {
+            const schedulerService = require('../services/schedulerService');
+            schedulerRunning = schedulerService.isRunning;
+        } catch (e) {
+            schedulerRunning = false;
+        }
+        
+        res.json({
+            success: true,
+            currentTime: now.toLocaleTimeString(),
+            currentMinutes,
+            schedulerRunning,
+            settings: {
+                autoScheduleEnabled: settings.autoScheduleEnabled,
+                isOnline: settings.isOnline,
+                manualOverride: settings.manualOverride,
+                manualOverrideExpiry: settings.manualOverrideExpiry,
+                shift1: {
+                    enabled: settings.shift1Enabled,
+                    open: settings.shift1Open,
+                    close: settings.shift1Close,
+                    openMinutes: openTime1,
+                    closeMinutes: closeTime1,
+                    inShift: inShift1
+                },
+                shift2: {
+                    enabled: settings.shift2Enabled,
+                    open: settings.shift2Open,
+                    close: settings.shift2Close,
+                    openMinutes: openTime2,
+                    closeMinutes: closeTime2,
+                    inShift: inShift2
+                }
+            },
+            shouldBeOpenNow,
+            needsUpdate: shouldBeOpenNow !== settings.isOnline
+        });
+    } catch (error) {
+        console.error('Scheduler debug error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
 module.exports = router;
