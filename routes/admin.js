@@ -48,7 +48,7 @@ const isAdmin = async (req, res, next) => {
 router.use(auth);
 router.use(isAdmin);
 
-// Add this at the TOP of your admin.js routes (right after router.use(isAdmin);)
+// Add test endpoint
 router.get('/test', (req, res) => {
   console.log('✅ Admin test route hit by:', req.user.email);
   res.json({
@@ -64,6 +64,204 @@ const restaurantSettingsController = require('../controllers/restaurantSettingsC
 
 // Get restaurant settings
 router.get('/restaurant-settings', restaurantSettingsController.getRestaurantSettings);
+
+// Get current status with source info
+router.get('/restaurant-settings/status', async (req, res) => {
+    try {
+        const settings = await RestaurantSettings.findOne();
+        
+        if (!settings) {
+            return res.json({
+                success: true,
+                data: {
+                    isOpen: false,
+                    autoScheduleEnabled: true,
+                    manualOverride: false,
+                    statusSource: 'initial'
+                }
+            });
+        }
+        
+        const now = new Date();
+        let statusSource = 'manual';
+        
+        if (settings.autoScheduleEnabled) {
+            if (settings.manualOverride && settings.manualOverrideExpiry) {
+                const expiryTime = new Date(settings.manualOverrideExpiry);
+                if (expiryTime > now) {
+                    statusSource = 'manual_override';
+                } else {
+                    statusSource = 'schedule';
+                }
+            } else {
+                statusSource = 'schedule';
+            }
+        } else {
+            statusSource = 'manual';
+        }
+        
+        // Helper function to convert time to minutes
+        const timeToMinutes = (timeStr) => {
+            if (!timeStr) return 0;
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return hours * 60 + minutes;
+        };
+        
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        let nextEvent = null;
+        
+        // Calculate next opening time if closed
+        if (!settings.isOnline && settings.autoScheduleEnabled && !settings.manualOverride) {
+            if (settings.shift1Enabled) {
+                const openTime = timeToMinutes(settings.shift1Open);
+                if (currentMinutes < openTime) {
+                    nextEvent = { type: 'OPEN', shift: 'Shift 1', time: settings.shift1Open };
+                } else if (settings.shift2Enabled) {
+                    const openTime2 = timeToMinutes(settings.shift2Open);
+                    if (currentMinutes < openTime2) {
+                        nextEvent = { type: 'OPEN', shift: 'Shift 2', time: settings.shift2Open };
+                    } else {
+                        nextEvent = { type: 'OPEN', shift: 'Shift 1', time: `Tomorrow ${settings.shift1Open}` };
+                    }
+                } else {
+                    nextEvent = { type: 'OPEN', shift: 'Shift 1', time: `Tomorrow ${settings.shift1Open}` };
+                }
+            } else if (settings.shift2Enabled) {
+                const openTime = timeToMinutes(settings.shift2Open);
+                if (currentMinutes < openTime) {
+                    nextEvent = { type: 'OPEN', shift: 'Shift 2', time: settings.shift2Open };
+                } else {
+                    nextEvent = { type: 'OPEN', shift: 'Shift 2', time: `Tomorrow ${settings.shift2Open}` };
+                }
+            }
+        }
+        
+        res.json({
+            success: true,
+            data: {
+                isOpen: settings.isOnline,
+                autoScheduleEnabled: settings.autoScheduleEnabled,
+                manualOverride: settings.manualOverride,
+                manualOverrideExpiry: settings.manualOverrideExpiry,
+                statusSource,
+                nextEvent,
+                shifts: {
+                    shift1: {
+                        enabled: settings.shift1Enabled,
+                        open: settings.shift1Open,
+                        close: settings.shift1Close
+                    },
+                    shift2: {
+                        enabled: settings.shift2Enabled,
+                        open: settings.shift2Open,
+                        close: settings.shift2Close
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error getting status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting status',
+            error: error.message
+        });
+    }
+});
+
+// Toggle restaurant status from header (manual override)
+router.patch('/restaurant-settings/toggle', async (req, res) => {
+    try {
+        const { isOnline } = req.body;
+        
+        console.log(`🔄 Manual toggle from header: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+        
+        let settings = await RestaurantSettings.findOne();
+        
+        if (!settings) {
+            settings = new RestaurantSettings();
+        }
+        
+        // Calculate manual override expiry (end of current shift if auto schedule is ON)
+        let manualOverrideExpiry = null;
+        let expiryShift = null;
+        
+        if (settings.autoScheduleEnabled) {
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            
+            // Find the end of current shift
+            if (settings.shift1Enabled) {
+                const [closeHour, closeMin] = settings.shift1Close.split(':').map(Number);
+                const closeMinutes = closeHour * 60 + closeMin;
+                if (currentMinutes < closeMinutes) {
+                    manualOverrideExpiry = new Date();
+                    manualOverrideExpiry.setHours(closeHour, closeMin, 0, 0);
+                    expiryShift = 'Shift 1';
+                }
+            }
+            
+            if (!manualOverrideExpiry && settings.shift2Enabled) {
+                const [closeHour, closeMin] = settings.shift2Close.split(':').map(Number);
+                const closeMinutes = closeHour * 60 + closeMin;
+                if (currentMinutes < closeMinutes) {
+                    manualOverrideExpiry = new Date();
+                    manualOverrideExpiry.setHours(closeHour, closeMin, 0, 0);
+                    expiryShift = 'Shift 2';
+                }
+            }
+            
+            // If no shift found, set expiry to end of day
+            if (!manualOverrideExpiry) {
+                manualOverrideExpiry = new Date();
+                manualOverrideExpiry.setHours(23, 59, 59, 999);
+                expiryShift = 'End of day';
+            }
+            
+            console.log(`📅 Manual override will expire at end of ${expiryShift}: ${manualOverrideExpiry.toLocaleTimeString()}`);
+        }
+        
+        // Update settings
+        settings.isOnline = isOnline;
+        if (settings.autoScheduleEnabled) {
+            settings.manualOverride = true;
+            settings.manualOverrideExpiry = manualOverrideExpiry;
+        } else {
+            settings.manualOverride = false;
+            settings.manualOverrideExpiry = null;
+        }
+        settings.lastUpdatedAt = new Date();
+        
+        await settings.save();
+        
+        console.log(`✅ Restaurant status toggled to: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+        
+        // Get the status for response
+        const now = new Date();
+        let statusSource = settings.autoScheduleEnabled ? 'manual_override' : 'manual';
+        
+        res.json({
+            success: true,
+            data: {
+                isOnline: settings.isOnline,
+                autoScheduleEnabled: settings.autoScheduleEnabled,
+                manualOverride: settings.manualOverride,
+                manualOverrideExpiry: settings.manualOverrideExpiry,
+                statusSource,
+                expiryShift
+            },
+            message: `Restaurant is now ${isOnline ? 'OPEN' : 'CLOSED'}${manualOverrideExpiry ? ` until end of ${expiryShift}` : ''}`
+        });
+        
+    } catch (error) {
+        console.error('❌ Error toggling restaurant status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error toggling restaurant status',
+            error: error.message
+        });
+    }
+});
 
 // Update restaurant settings
 router.put('/restaurant-settings', restaurantSettingsController.updateRestaurantSettings);
@@ -83,6 +281,8 @@ router.get('/scheduler-status', async (req, res) => {
       currentSettings: settings ? {
         isOnline: settings.isOnline,
         autoScheduleEnabled: settings.autoScheduleEnabled,
+        manualOverride: settings.manualOverride,
+        manualOverrideExpiry: settings.manualOverrideExpiry,
         shift1Enabled: settings.shift1Enabled,
         shift1Open: settings.shift1Open,
         shift1Close: settings.shift1Close,
@@ -98,13 +298,18 @@ router.get('/scheduler-status', async (req, res) => {
   }
 });
 
-
 // Debug endpoint to check shift status
 router.get('/debug-shift-status', async (req, res) => {
   try {
     const settings = await RestaurantSettings.findOne();
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    const timeToMinutes = (timeStr) => {
+        if (!timeStr) return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+    };
     
     console.log('=== DEBUG SHIFT STATUS ===');
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
@@ -116,25 +321,33 @@ router.get('/debug-shift-status', async (req, res) => {
       shift2Enabled: settings.shift2Enabled,
       shift2Open: settings.shift2Open,
       shift2Close: settings.shift2Close,
-      isOnline: settings.isOnline
+      isOnline: settings.isOnline,
+      manualOverride: settings.manualOverride,
+      manualOverrideExpiry: settings.manualOverrideExpiry
     });
     
-    const shift1Open = settings.shift1Open.split(':').map(Number);
-    const shift1Close = settings.shift1Close.split(':').map(Number);
-    const shift1OpenMinutes = shift1Open[0] * 60 + shift1Open[1];
-    const shift1CloseMinutes = shift1Close[0] * 60 + shift1Close[1];
-    
-    const shift2Open = settings.shift2Open.split(':').map(Number);
-    const shift2Close = settings.shift2Close.split(':').map(Number);
-    const shift2OpenMinutes = shift2Open[0] * 60 + shift2Open[1];
-    const shift2CloseMinutes = shift2Close[0] * 60 + shift2Close[1];
+    const shift1OpenMinutes = timeToMinutes(settings.shift1Open);
+    const shift1CloseMinutes = timeToMinutes(settings.shift1Close);
+    const shift2OpenMinutes = timeToMinutes(settings.shift2Open);
+    const shift2CloseMinutes = timeToMinutes(settings.shift2Close);
     
     const inShift1 = settings.shift1Enabled && currentMinutes >= shift1OpenMinutes && currentMinutes < shift1CloseMinutes;
     const inShift2 = settings.shift2Enabled && currentMinutes >= shift2OpenMinutes && currentMinutes < shift2CloseMinutes;
-    const shouldBeOpen = inShift1 || inShift2;
+    let shouldBeOpen = inShift1 || inShift2;
+    
+    // Check manual override
+    let manualOverrideActive = false;
+    if (settings.manualOverride && settings.manualOverrideExpiry) {
+        const expiryTime = new Date(settings.manualOverrideExpiry);
+        if (expiryTime > now) {
+            shouldBeOpen = settings.isOnline;
+            manualOverrideActive = true;
+        }
+    }
     
     console.log(`Shift 1: ${shift1OpenMinutes} - ${shift1CloseMinutes}, In shift: ${inShift1}`);
     console.log(`Shift 2: ${shift2OpenMinutes} - ${shift2CloseMinutes}, In shift: ${inShift2}`);
+    console.log(`Manual override active: ${manualOverrideActive}`);
     console.log(`Should be open: ${shouldBeOpen}`);
     console.log(`Current isOnline: ${settings.isOnline}`);
     
@@ -142,6 +355,7 @@ router.get('/debug-shift-status', async (req, res) => {
       success: true,
       currentTime: now.toLocaleTimeString(),
       currentMinutes,
+      manualOverrideActive,
       shifts: {
         shift1: {
           enabled: settings.shift1Enabled,
@@ -163,14 +377,13 @@ router.get('/debug-shift-status', async (req, res) => {
       shouldBeOpen,
       actualIsOnline: settings.isOnline,
       autoScheduleEnabled: settings.autoScheduleEnabled,
-      needsUpdate: shouldBeOpen !== settings.isOnline
+      needsUpdate: shouldBeOpen !== settings.isOnline && !manualOverrideActive
     });
   } catch (error) {
     console.error('Debug error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 
 // ==================== DASHBOARD STATISTICS ====================
 // Get dashboard stats
@@ -510,6 +723,8 @@ router.get('/categories', async (req, res) => {
         return {
           _id: category._id,
           name: category.name,
+          description: category.description,
+          image: category.image,
           enabled: category.enabled,
           itemCount: itemCount,
           createdAt: category.createdAt
@@ -531,7 +746,7 @@ router.get('/categories', async (req, res) => {
 // Create category
 router.post('/categories', async (req, res) => {
   try {
-    const { name, enabled = true } = req.body;
+    const { name, description, image, enabled = true } = req.body;
     
     if (!name || name.trim() === '') {
       return res.status(400).json({
@@ -554,6 +769,8 @@ router.post('/categories', async (req, res) => {
     
     const category = await Category.create({ 
       name: name.trim(),
+      description: description || '',
+      image: image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
       enabled: enabled 
     });
     
@@ -803,7 +1020,7 @@ router.put('/delivery-agents/:id', async (req, res) => {
   }
 });
 
-// Delete delivery agent
+// Delete delivery agent (soft delete)
 router.delete('/delivery-agents/:id', async (req, res) => {
   try {
     console.log('🗑️ Deleting delivery agent:', req.params.id);
@@ -1077,7 +1294,7 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
   }
 });
 
-
+// ==================== DEBUG ENDPOINTS ====================
 
 // Debug endpoint to check scheduler and shift status
 router.get('/scheduler-debug', async (req, res) => {
@@ -1099,11 +1316,27 @@ router.get('/scheduler-debug', async (req, res) => {
         const openTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Open) : null;
         const closeTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Close) : null;
         
-        const inShift1 = settings.shift1Enabled && openTime1 !== null && closeTime1 !== null && 
-                        currentMinutes >= openTime1 && currentMinutes < closeTime1;
-        const inShift2 = settings.shift2Enabled && openTime2 !== null && closeTime2 !== null && 
-                        currentMinutes >= openTime2 && currentMinutes < closeTime2;
-        const shouldBeOpenNow = inShift1 || inShift2;
+        let inShift1 = false;
+        let inShift2 = false;
+        
+        if (openTime1 !== null && closeTime1 !== null) {
+            inShift1 = currentMinutes >= openTime1 && currentMinutes < closeTime1;
+        }
+        if (openTime2 !== null && closeTime2 !== null) {
+            inShift2 = currentMinutes >= openTime2 && currentMinutes < closeTime2;
+        }
+        
+        let shouldBeOpenNow = inShift1 || inShift2;
+        
+        // Check manual override
+        let manualOverrideActive = false;
+        if (settings.manualOverride && settings.manualOverrideExpiry) {
+            const expiryTime = new Date(settings.manualOverrideExpiry);
+            if (expiryTime > now) {
+                shouldBeOpenNow = settings.isOnline;
+                manualOverrideActive = true;
+            }
+        }
         
         // Get scheduler service status
         let schedulerRunning = false;
@@ -1119,6 +1352,7 @@ router.get('/scheduler-debug', async (req, res) => {
             currentTime: now.toLocaleTimeString(),
             currentMinutes,
             schedulerRunning,
+            manualOverrideActive,
             settings: {
                 autoScheduleEnabled: settings.autoScheduleEnabled,
                 isOnline: settings.isOnline,
@@ -1142,14 +1376,12 @@ router.get('/scheduler-debug', async (req, res) => {
                 }
             },
             shouldBeOpenNow,
-            needsUpdate: shouldBeOpenNow !== settings.isOnline
+            needsUpdate: shouldBeOpenNow !== settings.isOnline && !manualOverrideActive
         });
     } catch (error) {
         console.error('Scheduler debug error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
-
 
 module.exports = router;
