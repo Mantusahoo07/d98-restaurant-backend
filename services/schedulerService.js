@@ -11,10 +11,16 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
+// Helper function to get current time in minutes
+const getCurrentMinutes = () => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+};
+
 // Function to check if restaurant should be open based on current time
 const shouldBeOpen = (settings) => {
     const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const currentMinutes = getCurrentMinutes();
     
     console.log(`\n=== SHOULD BE OPEN CHECK ===`);
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
@@ -49,31 +55,47 @@ const shouldBeOpen = (settings) => {
     
     // Check shift 1
     if (settings.shift1Enabled) {
-        const openTime = timeToMinutes(settings.shift1Open);
-        const closeTime = timeToMinutes(settings.shift1Close);
+        const openMinutes = timeToMinutes(settings.shift1Open);
+        const closeMinutes = timeToMinutes(settings.shift1Close);
         
-        console.log(`   Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
+        console.log(`   Shift 1: ${settings.shift1Open} (${openMinutes}) - ${settings.shift1Close} (${closeMinutes})`);
+        console.log(`   Current minutes: ${currentMinutes}`);
         
-        if (currentMinutes >= openTime && currentMinutes < closeTime) {
+        // CRITICAL FIX: Use < for closing time, not <=
+        if (currentMinutes >= openMinutes && currentMinutes < closeMinutes) {
             console.log(`   ✅ IN SHIFT 1 - Should be OPEN`);
             return true;
         } else {
             console.log(`   ❌ NOT in Shift 1`);
+            if (currentMinutes >= closeMinutes) {
+                console.log(`      (Current time ${currentMinutes} is >= closing time ${closeMinutes})`);
+            }
+            if (currentMinutes < openMinutes) {
+                console.log(`      (Current time ${currentMinutes} is before opening time ${openMinutes})`);
+            }
         }
     }
     
     // Check shift 2
     if (settings.shift2Enabled) {
-        const openTime = timeToMinutes(settings.shift2Open);
-        const closeTime = timeToMinutes(settings.shift2Close);
+        const openMinutes = timeToMinutes(settings.shift2Open);
+        const closeMinutes = timeToMinutes(settings.shift2Close);
         
-        console.log(`   Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
+        console.log(`   Shift 2: ${settings.shift2Open} (${openMinutes}) - ${settings.shift2Close} (${closeMinutes})`);
+        console.log(`   Current minutes: ${currentMinutes}`);
         
-        if (currentMinutes >= openTime && currentMinutes < closeTime) {
+        // CRITICAL FIX: Use < for closing time, not <=
+        if (currentMinutes >= openMinutes && currentMinutes < closeMinutes) {
             console.log(`   ✅ IN SHIFT 2 - Should be OPEN`);
             return true;
         } else {
             console.log(`   ❌ NOT in Shift 2`);
+            if (currentMinutes >= closeMinutes) {
+                console.log(`      (Current time ${currentMinutes} is >= closing time ${closeMinutes})`);
+            }
+            if (currentMinutes < openMinutes) {
+                console.log(`      (Current time ${currentMinutes} is before opening time ${openMinutes})`);
+            }
         }
     }
     
@@ -86,6 +108,10 @@ const updateStatusFromSchedule = async () => {
     try {
         const settings = await RestaurantSettings.findOne();
         if (!settings) return null;
+        
+        console.log(`\n🕐 SCHEDULER CHECK at ${new Date().toLocaleTimeString()}`);
+        console.log(`Current isOnline: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
+        console.log(`Auto Schedule Enabled: ${settings.autoScheduleEnabled}`);
         
         // If auto schedule is disabled, don't update automatically
         if (!settings.autoScheduleEnabled) {
@@ -104,20 +130,25 @@ const updateStatusFromSchedule = async () => {
                 needsSave = true;
             } else {
                 console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
+                // Don't change status while manual override is active
                 return settings.isOnline;
             }
         }
         
         const shouldBeOpenNow = shouldBeOpen(settings);
         
-        if (settings.isOnline !== shouldBeOpenNow || needsSave) {
+        // CRITICAL: Only update if shouldBeOpenNow is not null (not in manual override)
+        if (shouldBeOpenNow !== null && (settings.isOnline !== shouldBeOpenNow || needsSave)) {
+            const previousStatus = settings.isOnline;
             settings.isOnline = shouldBeOpenNow;
             settings.lastUpdatedAt = new Date();
             await settings.save();
             
-            console.log(`🔄 Schedule updated restaurant status: ${shouldBeOpenNow ? 'OPEN' : 'CLOSED'} at ${new Date().toLocaleTimeString()}`);
+            console.log(`🔄 Schedule updated restaurant status: ${previousStatus ? 'OPEN' : 'CLOSED'} → ${shouldBeOpenNow ? 'OPEN' : 'CLOSED'} at ${new Date().toLocaleTimeString()}`);
             
             return shouldBeOpenNow;
+        } else if (shouldBeOpenNow === null) {
+            console.log(`⏸️ Status unchanged (manual override active)`);
         } else {
             console.log(`✅ Current status: ${settings.isOnline ? 'OPEN' : 'CLOSED'} - No change needed`);
         }
@@ -136,7 +167,7 @@ const checkUpcomingShifts = async () => {
         if (!settings || !settings.autoScheduleEnabled) return;
         
         const now = new Date();
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const currentMinutes = getCurrentMinutes();
         
         let nextEvent = null;
         let nextEventMinutes = null;
@@ -233,7 +264,7 @@ const getStatus = async () => {
             manualOverride: settings.manualOverride,
             manualOverrideExpiry: settings.manualOverrideExpiry,
             shouldBeOpen: shouldBeOpenNow,
-            needsUpdate: shouldBeOpenNow !== settings.isOnline
+            needsUpdate: shouldBeOpenNow !== settings.isOnline && !settings.manualOverride
         };
     } catch (error) {
         console.error('Error getting status:', error);
@@ -247,5 +278,6 @@ module.exports = {
     isRunning,
     getStatus,
     timeToMinutes,
-    shouldBeOpen
+    shouldBeOpen,
+    getCurrentMinutes
 };
