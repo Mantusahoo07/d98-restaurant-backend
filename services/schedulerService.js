@@ -37,6 +37,8 @@ const shouldBeOpen = (settings) => {
             console.log(`⏰ Manual override expired at ${expiryTime.toLocaleTimeString()}`);
             settings.manualOverride = false;
             settings.manualOverrideExpiry = null;
+            // We'll need to save this change
+            return null;
         }
     }
     
@@ -107,6 +109,14 @@ const updateStatusFromSchedule = async () => {
         
         const shouldBeOpenNow = shouldBeOpen(settings);
         
+        // If shouldBeOpenNow is null, it means manual override expired and we need to save
+        if (shouldBeOpenNow === null) {
+            await settings.save();
+            console.log(`✅ Cleared expired manual override`);
+            // Recalculate with updated settings
+            return await updateStatusFromSchedule();
+        }
+        
         if (settings.isOnline !== shouldBeOpenNow || needsSave) {
             settings.isOnline = shouldBeOpenNow;
             settings.lastUpdatedAt = new Date();
@@ -114,11 +124,10 @@ const updateStatusFromSchedule = async () => {
             
             console.log(`🔄 Schedule updated restaurant status: ${shouldBeOpenNow ? 'OPEN' : 'CLOSED'} at ${new Date().toLocaleTimeString()}`);
             
-            // Broadcast the updated status (if you have SSE)
+            // Try to broadcast if SSE is available
             try {
-                const restaurantController = require('../controllers/restaurantSettingsController');
-                const updatedStatus = restaurantController.calculateRestaurantStatus(settings);
-                // You would broadcast here if you have SSE clients
+                // You can implement SSE broadcast here if needed
+                console.log(`📡 Status change broadcast would happen here`);
             } catch (e) {}
             
             return shouldBeOpenNow;
@@ -223,8 +232,33 @@ const stop = () => {
     }
 };
 
+// Get current status (for debugging)
+const getStatus = async () => {
+    try {
+        const settings = await RestaurantSettings.findOne();
+        if (!settings) return null;
+        
+        const shouldBeOpenNow = settings.autoScheduleEnabled ? shouldBeOpen(settings) : settings.isOnline;
+        
+        return {
+            isOnline: settings.isOnline,
+            autoScheduleEnabled: settings.autoScheduleEnabled,
+            manualOverride: settings.manualOverride,
+            manualOverrideExpiry: settings.manualOverrideExpiry,
+            shouldBeOpen: shouldBeOpenNow,
+            needsUpdate: shouldBeOpenNow !== settings.isOnline
+        };
+    } catch (error) {
+        console.error('Error getting status:', error);
+        return null;
+    }
+};
+
 module.exports = {
     start,
     stop,
-    isRunning
+    isRunning,
+    getStatus,
+    timeToMinutes,
+    shouldBeOpen
 };
