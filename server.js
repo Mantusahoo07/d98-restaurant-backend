@@ -20,6 +20,11 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/d98-resta
 
 mongoose.connection.on('connected', () => {
   console.log('✅ Connected to MongoDB');
+  
+  // Start the restaurant status scheduler after DB connection
+  const restaurantScheduler = require('./services/schedulerService');
+  restaurantScheduler.start();
+  console.log('✅ Restaurant status scheduler started');
 });
 
 mongoose.connection.on('error', (err) => {
@@ -233,7 +238,6 @@ const categoriesRouter = require('./routes/categories');
 const razorpayRouter = require('./routes/razorpay');
 const adminRouter = require('./routes/admin');
 const deliveryRouter = require('./routes/delivery');
-// const restaurantSettingsController = require('./controllers/restaurantSettingsController');
 
 // ==================== MOUNT ROUTES ====================
 app.use('/api/users', usersRouter);
@@ -246,6 +250,34 @@ app.use('/api/admin', adminRouter);
 app.use('/api/delivery', deliveryRouter);
 app.get('/api/restaurant-status', restaurantSettingsController.getRestaurantStatus);
 
+// Add this debug endpoint to check scheduler status
+app.get('/api/admin/scheduler-status', auth, async (req, res) => {
+  try {
+    const restaurantScheduler = require('./services/schedulerService');
+    const RestaurantSettings = require('./models/RestaurantSettings');
+    const settings = await RestaurantSettings.findOne();
+    
+    res.json({
+      success: true,
+      schedulerRunning: restaurantScheduler.isRunning,
+      currentSettings: settings ? {
+        isOnline: settings.isOnline,
+        autoScheduleEnabled: settings.autoScheduleEnabled,
+        shift1Enabled: settings.shift1Enabled,
+        shift1Open: settings.shift1Open,
+        shift1Close: settings.shift1Close,
+        shift2Enabled: settings.shift2Enabled,
+        shift2Open: settings.shift2Open,
+        shift2Close: settings.shift2Close,
+        specialClosing: settings.specialClosing,
+        lastUpdatedAt: settings.lastUpdatedAt
+      } : null,
+      nextRun: 'Every minute'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Add to your server.js or a test route
 app.get('/api/test-ors', async (req, res) => {
@@ -271,7 +303,6 @@ app.get('/api/test-ors', async (req, res) => {
   }
 });
 
-
 // ==================== DEBUG LOGGING ====================
 console.log('=== ROUTE DEBUG ===');
 console.log('✅ Admin router loaded');
@@ -280,6 +311,7 @@ console.log('✅ DeliverySettings model loaded');
 console.log('✅ Public delivery settings endpoint registered at: /api/delivery-settings/public');
 console.log('✅ Order updates SSE endpoint registered at: /api/orders/updates');
 console.log('✅ Restaurant status SSE endpoint registered at: /api/restaurant-status/updates');
+console.log('✅ Scheduler status endpoint registered at: /api/admin/scheduler-status');
 
 // ==================== 404 HANDLER (MUST BE LAST) ====================
 app.use('*', (req, res) => {
@@ -301,15 +333,43 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ==================== GRACEFUL SHUTDOWN ====================
+let server;
+
+const gracefulShutdown = async () => {
+  console.log('🛑 Received shutdown signal, closing gracefully...');
+  
+  // Stop the scheduler
+  const restaurantScheduler = require('./services/schedulerService');
+  restaurantScheduler.stop();
+  
+  // Close HTTP server
+  if (server) {
+    server.close(() => {
+      console.log('HTTP server closed');
+    });
+  }
+  
+  // Close MongoDB connection
+  await mongoose.connection.close(false);
+  console.log('MongoDB connection closed');
+  
+  process.exit(0);
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server = app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📞 Health check: http://localhost:${PORT}/api/health`);
   console.log(`📦 Delivery settings (public): http://localhost:${PORT}/api/delivery-settings/public`);
   console.log(`🚚 Delivery API: http://localhost:${PORT}/api/delivery/profile`);
   console.log(`🔄 Order updates SSE: http://localhost:${PORT}/api/orders/updates`);
   console.log(`🏪 Restaurant status SSE: http://localhost:${PORT}/api/restaurant-status/updates`);
+  console.log(`⏰ Scheduler status: http://localhost:${PORT}/api/admin/scheduler-status`);
 });
 
 // Export broadcast function for use in other controllers
