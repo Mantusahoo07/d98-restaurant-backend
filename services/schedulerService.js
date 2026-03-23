@@ -26,18 +26,16 @@ const shouldBeOpen = (settings) => {
         return settings.isOnline;
     }
     
-    // Check manual override first (only applies when auto schedule is on)
+    // Check manual override (only applies when auto schedule is on)
     if (settings.manualOverride && settings.manualOverrideExpiry) {
         const expiryTime = new Date(settings.manualOverrideExpiry);
         if (expiryTime > now) {
             console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
             console.log(`📌 Using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
             return settings.isOnline;
-        } else {
+        } else if (expiryTime <= now) {
             console.log(`⏰ Manual override expired at ${expiryTime.toLocaleTimeString()}`);
-            settings.manualOverride = false;
-            settings.manualOverrideExpiry = null;
-            // We'll need to save this change
+            // We'll clear this in the update function
             return null;
         }
     }
@@ -82,7 +80,7 @@ const shouldBeOpen = (settings) => {
     console.log(`❌ Not in any shift - Should be CLOSED`);
     return false;
 };
-
+// Function to update restaurant status based on schedule
 // Function to update restaurant status based on schedule
 const updateStatusFromSchedule = async () => {
     try {
@@ -100,22 +98,18 @@ const updateStatusFromSchedule = async () => {
         if (settings.manualOverride && settings.manualOverrideExpiry) {
             const expiryTime = new Date(settings.manualOverrideExpiry);
             if (expiryTime <= new Date()) {
-                console.log(`⏰ Manual override expired, reverting to schedule`);
+                console.log(`⏰ Manual override expired at ${expiryTime.toLocaleTimeString()}, reverting to schedule`);
                 settings.manualOverride = false;
                 settings.manualOverrideExpiry = null;
                 needsSave = true;
+            } else {
+                console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
+                // Don't change status while manual override is active
+                return settings.isOnline;
             }
         }
         
         const shouldBeOpenNow = shouldBeOpen(settings);
-        
-        // If shouldBeOpenNow is null, it means manual override expired and we need to save
-        if (shouldBeOpenNow === null) {
-            await settings.save();
-            console.log(`✅ Cleared expired manual override`);
-            // Recalculate with updated settings
-            return await updateStatusFromSchedule();
-        }
         
         if (settings.isOnline !== shouldBeOpenNow || needsSave) {
             settings.isOnline = shouldBeOpenNow;
@@ -123,12 +117,6 @@ const updateStatusFromSchedule = async () => {
             await settings.save();
             
             console.log(`🔄 Schedule updated restaurant status: ${shouldBeOpenNow ? 'OPEN' : 'CLOSED'} at ${new Date().toLocaleTimeString()}`);
-            
-            // Try to broadcast if SSE is available
-            try {
-                // You can implement SSE broadcast here if needed
-                console.log(`📡 Status change broadcast would happen here`);
-            } catch (e) {}
             
             return shouldBeOpenNow;
         } else {
