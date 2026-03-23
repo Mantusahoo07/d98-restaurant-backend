@@ -263,6 +263,8 @@ app.get('/api/admin/scheduler-status', auth, async (req, res) => {
       currentSettings: settings ? {
         isOnline: settings.isOnline,
         autoScheduleEnabled: settings.autoScheduleEnabled,
+        manualOverride: settings.manualOverride,
+        manualOverrideExpiry: settings.manualOverrideExpiry,
         shift1Enabled: settings.shift1Enabled,
         shift1Open: settings.shift1Open,
         shift1Close: settings.shift1Close,
@@ -277,6 +279,72 @@ app.get('/api/admin/scheduler-status', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Add scheduler debug endpoint
+app.get('/api/admin/scheduler-debug', auth, async (req, res) => {
+    try {
+        const RestaurantSettings = require('./models/RestaurantSettings');
+        const settings = await RestaurantSettings.findOne();
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        
+        // Helper function to convert time to minutes
+        const timeToMinutes = (timeStr) => {
+            if (!timeStr) return null;
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return hours * 60 + minutes;
+        };
+        
+        // Calculate if should be open
+        const openTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Open) : null;
+        const closeTime1 = settings.shift1Enabled ? timeToMinutes(settings.shift1Close) : null;
+        const openTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Open) : null;
+        const closeTime2 = settings.shift2Enabled ? timeToMinutes(settings.shift2Close) : null;
+        
+        const inShift1 = settings.shift1Enabled && openTime1 !== null && closeTime1 !== null && 
+                        currentMinutes >= openTime1 && currentMinutes < closeTime1;
+        const inShift2 = settings.shift2Enabled && openTime2 !== null && closeTime2 !== null && 
+                        currentMinutes >= openTime2 && currentMinutes < closeTime2;
+        const shouldBeOpenNow = inShift1 || inShift2;
+        
+        // Get scheduler service status
+        const restaurantScheduler = require('./services/schedulerService');
+        
+        res.json({
+            success: true,
+            currentTime: now.toLocaleTimeString(),
+            currentMinutes,
+            schedulerRunning: restaurantScheduler.isRunning,
+            settings: {
+                autoScheduleEnabled: settings.autoScheduleEnabled,
+                isOnline: settings.isOnline,
+                manualOverride: settings.manualOverride,
+                manualOverrideExpiry: settings.manualOverrideExpiry,
+                shift1: {
+                    enabled: settings.shift1Enabled,
+                    open: settings.shift1Open,
+                    close: settings.shift1Close,
+                    openMinutes: openTime1,
+                    closeMinutes: closeTime1,
+                    inShift: inShift1
+                },
+                shift2: {
+                    enabled: settings.shift2Enabled,
+                    open: settings.shift2Open,
+                    close: settings.shift2Close,
+                    openMinutes: openTime2,
+                    closeMinutes: closeTime2,
+                    inShift: inShift2
+                }
+            },
+            shouldBeOpenNow,
+            needsUpdate: shouldBeOpenNow !== settings.isOnline
+        });
+    } catch (error) {
+        console.error('Scheduler debug error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // Add to your server.js or a test route
@@ -312,6 +380,7 @@ console.log('✅ Public delivery settings endpoint registered at: /api/delivery-
 console.log('✅ Order updates SSE endpoint registered at: /api/orders/updates');
 console.log('✅ Restaurant status SSE endpoint registered at: /api/restaurant-status/updates');
 console.log('✅ Scheduler status endpoint registered at: /api/admin/scheduler-status');
+console.log('✅ Scheduler debug endpoint registered at: /api/admin/scheduler-debug');
 
 // ==================== 404 HANDLER (MUST BE LAST) ====================
 app.use('*', (req, res) => {
@@ -370,6 +439,7 @@ server = app.listen(PORT, () => {
   console.log(`🔄 Order updates SSE: http://localhost:${PORT}/api/orders/updates`);
   console.log(`🏪 Restaurant status SSE: http://localhost:${PORT}/api/restaurant-status/updates`);
   console.log(`⏰ Scheduler status: http://localhost:${PORT}/api/admin/scheduler-status`);
+  console.log(`🐛 Scheduler debug: http://localhost:${PORT}/api/admin/scheduler-debug`);
 });
 
 // Export broadcast function for use in other controllers
