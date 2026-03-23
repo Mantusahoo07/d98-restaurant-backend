@@ -122,11 +122,18 @@ const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     
-    console.log(`🕐 Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
-    console.log(`📅 Auto schedule enabled: ${settings.autoScheduleEnabled}`);
+    console.log(`=== SHOULD BE OPEN CHECK ===`);
+    console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
+    console.log(`Auto schedule enabled: ${settings.autoScheduleEnabled}`);
     
-    if (settings.specialClosing?.isClosed) return false;
-    if (!settings.autoScheduleEnabled) return settings.isOnline;
+    if (settings.specialClosing?.isClosed) {
+        console.log(`Restaurant temporarily closed`);
+        return false;
+    }
+    if (!settings.autoScheduleEnabled) {
+        console.log(`Auto schedule disabled, using manual: ${settings.isOnline}`);
+        return settings.isOnline;
+    }
     
     // Check shift 1
     if (settings.shift1Enabled) {
@@ -135,10 +142,10 @@ const shouldBeOpen = (settings) => {
         const openTime = openHour * 60 + openMin;
         const closeTime = closeHour * 60 + closeMin;
         
-        console.log(`📅 Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
+        console.log(`Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
         
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
-            console.log(`✅ In shift 1 - Should be OPEN`);
+            console.log(`✅ IN SHIFT 1 - Should be OPEN`);
             return true;
         }
     }
@@ -150,10 +157,10 @@ const shouldBeOpen = (settings) => {
         const openTime = openHour * 60 + openMin;
         const closeTime = closeHour * 60 + closeMin;
         
-        console.log(`📅 Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
+        console.log(`Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
         
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
-            console.log(`✅ In shift 2 - Should be OPEN`);
+            console.log(`✅ IN SHIFT 2 - Should be OPEN`);
             return true;
         }
     }
@@ -188,7 +195,7 @@ const updateStatusFromSchedule = async () => {
             
             return shouldBeOpenNow;
         } else {
-            console.log(`✅ Current status: ${settings.isOnline ? 'OPEN' : 'CLOSED'} - No change needed at ${new Date().toLocaleTimeString()}`);
+            console.log(`✅ Current status: ${settings.isOnline ? 'OPEN' : 'CLOSED'} - No change needed`);
         }
         
         return settings.isOnline;
