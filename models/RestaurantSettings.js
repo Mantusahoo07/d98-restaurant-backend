@@ -1,68 +1,10 @@
 const mongoose = require('mongoose');
 
 const RestaurantSettingsSchema = new mongoose.Schema({
-    // Restaurant Status
+    // Simple online/offline status
     isOnline: {
         type: Boolean,
         default: false
-    },
-    autoScheduleEnabled: {
-        type: Boolean,
-        default: true
-    },
-    
-    // Manual Override - For temporary overrides by admin
-    manualOverride: {
-        type: Boolean,
-        default: false
-    },
-    manualOverrideExpiry: {
-        type: Date,
-        default: null
-    },
-    
-    // Shift 1 - Morning/Day
-    shift1Enabled: {
-        type: Boolean,
-        default: true
-    },
-    shift1Open: {
-        type: String,
-        default: '09:00'
-    },
-    shift1Close: {
-        type: String,
-        default: '17:00'
-    },
-    
-    // Shift 2 - Evening/Night
-    shift2Enabled: {
-        type: Boolean,
-        default: true
-    },
-    shift2Open: {
-        type: String,
-        default: '18:00'
-    },
-    shift2Close: {
-        type: String,
-        default: '23:00'
-    },
-    
-    // Special Closing
-    specialClosing: {
-        isClosed: {
-            type: Boolean,
-            default: false
-        },
-        reason: {
-            type: String,
-            default: ''
-        },
-        closedUntil: {
-            type: Date,
-            default: null
-        }
     },
     
     // Metadata
