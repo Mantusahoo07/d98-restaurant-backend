@@ -6,6 +6,7 @@ const Order = require('../models/Order');
 const Category = require('../models/Category');
 const Menu = require('../models/Menu');
 const DeliveryAgent = require('../models/DeliveryAgent');
+const RestaurantSettings = require('../models/RestaurantSettings');
 
 // Parse admin emails from environment variable
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS 
@@ -69,6 +70,33 @@ router.put('/restaurant-settings', restaurantSettingsController.updateRestaurant
 
 // Reset restaurant settings
 router.post('/restaurant-settings/reset', restaurantSettingsController.resetRestaurantSettings);
+
+// Check scheduler status endpoint (for debugging)
+router.get('/scheduler-status', async (req, res) => {
+  try {
+    const schedulerService = require('../services/schedulerService');
+    const settings = await RestaurantSettings.findOne();
+    
+    res.json({
+      success: true,
+      schedulerRunning: schedulerService.isRunning,
+      currentSettings: settings ? {
+        isOnline: settings.isOnline,
+        autoScheduleEnabled: settings.autoScheduleEnabled,
+        shift1Enabled: settings.shift1Enabled,
+        shift1Open: settings.shift1Open,
+        shift1Close: settings.shift1Close,
+        shift2Enabled: settings.shift2Enabled,
+        shift2Open: settings.shift2Open,
+        shift2Close: settings.shift2Close,
+        lastUpdatedAt: settings.lastUpdatedAt
+      } : null,
+      nextCheck: 'Every minute'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ==================== DASHBOARD STATISTICS ====================
 // Get dashboard stats
@@ -653,7 +681,7 @@ router.put('/delivery-agents/:id', async (req, res) => {
   try {
     console.log('✏️ Updating delivery agent:', req.params.id);
     
-    const { name, phone, vehicle, status, password } = req.body;
+    const { name, phone, vehicle, status, password, isActive } = req.body;
     
     const agent = await DeliveryAgent.findById(req.params.id);
     
@@ -669,6 +697,7 @@ router.put('/delivery-agents/:id', async (req, res) => {
     if (phone) agent.phone = phone;
     if (vehicle !== undefined) agent.vehicle = vehicle;
     if (status) agent.status = status;
+    if (isActive !== undefined) agent.isActive = isActive;
     if (password) agent.password = password; // Will be hashed by pre-save hook
     
     await agent.save();
@@ -684,6 +713,7 @@ router.put('/delivery-agents/:id', async (req, res) => {
         phone: agent.phone,
         vehicle: agent.vehicle,
         status: agent.status,
+        isActive: agent.isActive,
         ordersDelivered: agent.ordersDelivered,
         updatedAt: agent.updatedAt
       },
@@ -972,7 +1002,5 @@ router.patch('/menu/:id/toggle-availability', async (req, res) => {
     });
   }
 });
-
-
 
 module.exports = router;
