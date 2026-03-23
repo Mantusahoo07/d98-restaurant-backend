@@ -16,7 +16,7 @@ const broadcastRestaurantStatus = (status) => {
     });
 };
 
-// Helper function to calculate restaurant status
+// Helper function to calculate restaurant status for display
 const calculateRestaurantStatus = (settings) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -117,10 +117,13 @@ const calculateRestaurantStatus = (settings) => {
     };
 };
 
-// Function to check if restaurant should be open based on current time
+// FIXED: Function to check if restaurant should be open based on current time
 const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    console.log(`🕐 Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
+    console.log(`📅 Auto schedule enabled: ${settings.autoScheduleEnabled}`);
     
     if (settings.specialClosing?.isClosed) return false;
     if (!settings.autoScheduleEnabled) return settings.isOnline;
@@ -132,7 +135,10 @@ const shouldBeOpen = (settings) => {
         const openTime = openHour * 60 + openMin;
         const closeTime = closeHour * 60 + closeMin;
         
+        console.log(`📅 Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
+        
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
+            console.log(`✅ In shift 1 - Should be OPEN`);
             return true;
         }
     }
@@ -144,11 +150,15 @@ const shouldBeOpen = (settings) => {
         const openTime = openHour * 60 + openMin;
         const closeTime = closeHour * 60 + closeMin;
         
+        console.log(`📅 Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
+        
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
+            console.log(`✅ In shift 2 - Should be OPEN`);
             return true;
         }
     }
     
+    console.log(`❌ Not in any shift - Should be CLOSED`);
     return false;
 };
 
@@ -178,7 +188,6 @@ const updateStatusFromSchedule = async () => {
             
             return shouldBeOpenNow;
         } else {
-            // Log current status for debugging
             console.log(`✅ Current status: ${settings.isOnline ? 'OPEN' : 'CLOSED'} - No change needed at ${new Date().toLocaleTimeString()}`);
         }
         
@@ -330,10 +339,12 @@ exports.getRestaurantSettings = async (req, res) => {
     }
 };
 
-// Update restaurant settings
+// FIXED: Update restaurant settings
 exports.updateRestaurantSettings = async (req, res) => {
     try {
         console.log('✏️ Admin updating restaurant settings');
+        console.log('Request body:', req.body);
+        
         const {
             isOnline,
             autoScheduleEnabled,
@@ -377,17 +388,25 @@ exports.updateRestaurantSettings = async (req, res) => {
         settings.lastUpdatedBy = req.user._id;
         settings.lastUpdatedAt = new Date();
 
-        await settings.save();
-
-        // If auto schedule is enabled, recalculate status immediately
+        // CRITICAL: If auto schedule is enabled, recalculate status immediately
         if (settings.autoScheduleEnabled) {
             const newStatus = shouldBeOpen(settings);
-            if (settings.isOnline !== newStatus) {
-                settings.isOnline = newStatus;
-                await settings.save();
-                console.log(`🔄 Status recalculated after settings update: ${newStatus ? 'OPEN' : 'CLOSED'}`);
-            }
+            console.log(`🔄 Auto-schedule recalculated status: ${newStatus ? 'OPEN' : 'CLOSED'}`);
+            settings.isOnline = newStatus;
         }
+
+        await settings.save();
+
+        console.log('✅ Settings saved:', {
+            isOnline: settings.isOnline,
+            autoScheduleEnabled: settings.autoScheduleEnabled,
+            shift1Enabled: settings.shift1Enabled,
+            shift1Open: settings.shift1Open,
+            shift1Close: settings.shift1Close,
+            shift2Enabled: settings.shift2Enabled,
+            shift2Open: settings.shift2Open,
+            shift2Close: settings.shift2Close
+        });
 
         // Calculate and broadcast updated status
         const updatedStatus = calculateRestaurantStatus(settings);
