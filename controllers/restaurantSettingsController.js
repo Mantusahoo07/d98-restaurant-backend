@@ -31,67 +31,86 @@ const calculateRestaurantStatus = (settings) => {
     let isOpen = false;
     let nextOpenTime = null;
     let currentShift = null;
+    let statusSource = 'manual';
     
     if (settings.specialClosing?.isClosed) {
         isOpen = false;
-    } else {
-        if (settings.autoScheduleEnabled) {
-            // Check shift 1
-            if (settings.shift1Enabled) {
-                const openTime = timeToMinutes(settings.shift1Open);
-                const closeTime = timeToMinutes(settings.shift1Close);
-                
-                if (currentTime >= openTime && currentTime < closeTime) {
-                    isOpen = true;
-                    currentShift = 'Shift 1';
-                }
-            }
-            
-            // Check shift 2
-            if (!isOpen && settings.shift2Enabled) {
-                const openTime = timeToMinutes(settings.shift2Open);
-                const closeTime = timeToMinutes(settings.shift2Close);
-                
-                if (currentTime >= openTime && currentTime < closeTime) {
-                    isOpen = true;
-                    currentShift = 'Shift 2';
-                }
-            }
-        } else {
-            isOpen = settings.isOnline;
-        }
-    }
-    
-    // Calculate next opening time if closed
-    if (!isOpen && !settings.specialClosing?.isClosed && settings.autoScheduleEnabled) {
-        const now = new Date();
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        statusSource = 'special_closing';
+    } else if (settings.autoScheduleEnabled) {
+        statusSource = 'schedule';
         
+        // Check shift 1
         if (settings.shift1Enabled) {
             const openTime = timeToMinutes(settings.shift1Open);
+            const closeTime = timeToMinutes(settings.shift1Close);
             
-            if (currentMinutes < openTime) {
-                nextOpenTime = settings.shift1Open;
-            } else if (settings.shift2Enabled) {
-                const openTime2 = timeToMinutes(settings.shift2Open);
+            if (currentTime >= openTime && currentTime < closeTime) {
+                isOpen = true;
+                currentShift = 'Shift 1';
+            }
+        }
+        
+        // Check shift 2
+        if (!isOpen && settings.shift2Enabled) {
+            const openTime = timeToMinutes(settings.shift2Open);
+            const closeTime = timeToMinutes(settings.shift2Close);
+            
+            if (currentTime >= openTime && currentTime < closeTime) {
+                isOpen = true;
+                currentShift = 'Shift 2';
+            }
+        }
+        
+        // Apply manual override if active (temporary override from header)
+        if (settings.manualOverride && settings.manualOverrideExpiry) {
+            const expiryTime = new Date(settings.manualOverrideExpiry);
+            if (expiryTime > now) {
+                isOpen = settings.isOnline; // Use manual override status
+                statusSource = 'manual_override';
+                currentShift = null;
+            } else if (expiryTime <= now) {
+                // Clear expired manual override
+                settings.manualOverride = false;
+                settings.manualOverrideExpiry = null;
+                settings.save().catch(console.error);
+            }
+        }
+        
+        // Calculate next opening time if closed
+        if (!isOpen && !settings.specialClosing?.isClosed) {
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            
+            if (settings.shift1Enabled) {
+                const openTime = timeToMinutes(settings.shift1Open);
                 
-                if (currentMinutes < openTime2) {
-                    nextOpenTime = settings.shift2Open;
+                if (currentMinutes < openTime) {
+                    nextOpenTime = settings.shift1Open;
+                } else if (settings.shift2Enabled) {
+                    const openTime2 = timeToMinutes(settings.shift2Open);
+                    
+                    if (currentMinutes < openTime2) {
+                        nextOpenTime = settings.shift2Open;
+                    } else {
+                        nextOpenTime = `Tomorrow ${settings.shift1Open}`;
+                    }
                 } else {
                     nextOpenTime = `Tomorrow ${settings.shift1Open}`;
                 }
-            } else {
-                nextOpenTime = `Tomorrow ${settings.shift1Open}`;
-            }
-        } else if (settings.shift2Enabled) {
-            const openTime = timeToMinutes(settings.shift2Open);
-            
-            if (currentMinutes < openTime) {
-                nextOpenTime = settings.shift2Open;
-            } else {
-                nextOpenTime = `Tomorrow ${settings.shift2Open}`;
+            } else if (settings.shift2Enabled) {
+                const openTime = timeToMinutes(settings.shift2Open);
+                
+                if (currentMinutes < openTime) {
+                    nextOpenTime = settings.shift2Open;
+                } else {
+                    nextOpenTime = `Tomorrow ${settings.shift2Open}`;
+                }
             }
         }
+    } else {
+        // Auto schedule OFF - use manual status from header
+        statusSource = 'manual';
+        isOpen = settings.isOnline;
     }
     
     return {
@@ -100,6 +119,10 @@ const calculateRestaurantStatus = (settings) => {
         nextOpenTime,
         isTemporarilyClosed: settings.specialClosing?.isClosed || false,
         temporaryClosingReason: settings.specialClosing?.reason || '',
+        autoScheduleEnabled: settings.autoScheduleEnabled,
+        manualOverride: settings.manualOverride || false,
+        manualOverrideExpiry: settings.manualOverrideExpiry,
+        statusSource,
         shifts: {
             shift1: {
                 enabled: settings.shift1Enabled,
@@ -112,9 +135,6 @@ const calculateRestaurantStatus = (settings) => {
                 close: settings.shift2Close
             }
         },
-        autoScheduleEnabled: settings.autoScheduleEnabled,
-        manualOverride: settings.manualOverride || false,
-        manualOverrideExpiry: settings.manualOverrideExpiry,
         lastUpdated: settings.lastUpdatedAt
     };
 };
@@ -127,27 +147,31 @@ const shouldBeOpen = (settings) => {
     console.log(`\n=== SHOULD BE OPEN CHECK ===`);
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
     
-    // Check manual override first
+    // If auto schedule is OFF, return current manual status
+    if (!settings.autoScheduleEnabled) {
+        console.log(`⚙️ Auto schedule disabled, using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
+        return settings.isOnline;
+    }
+    
+    // Check special closing
+    if (settings.specialClosing?.isClosed) {
+        console.log(`❌ Restaurant temporarily closed`);
+        return false;
+    }
+    
+    // Check manual override (temporary override from header)
     if (settings.manualOverride && settings.manualOverrideExpiry) {
         const expiryTime = new Date(settings.manualOverrideExpiry);
         if (expiryTime > now) {
             console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
             console.log(`📌 Using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
             return settings.isOnline;
-        } else {
+        } else if (expiryTime <= now) {
             console.log(`⏰ Manual override expired at ${expiryTime.toLocaleTimeString()}`);
             settings.manualOverride = false;
             settings.manualOverrideExpiry = null;
+            settings.save().catch(console.error);
         }
-    }
-    
-    if (settings.specialClosing?.isClosed) {
-        console.log(`❌ Restaurant temporarily closed`);
-        return false;
-    }
-    if (!settings.autoScheduleEnabled) {
-        console.log(`⚙️ Auto schedule disabled, using manual: ${settings.isOnline}`);
-        return settings.isOnline;
     }
     
     console.log(`📅 Auto schedule enabled, checking shifts...`);
@@ -192,6 +216,7 @@ const updateStatusFromSchedule = async () => {
         const settings = await RestaurantSettings.findOne();
         if (!settings) return null;
         
+        // If auto schedule is disabled, don't update automatically
         if (!settings.autoScheduleEnabled) {
             console.log('⏭️ Auto schedule disabled, skipping automatic update');
             return null;
@@ -206,6 +231,9 @@ const updateStatusFromSchedule = async () => {
                 settings.manualOverride = false;
                 settings.manualOverrideExpiry = null;
                 needsSave = true;
+            } else {
+                console.log(`🔧 Manual override active until ${expiryTime.toLocaleTimeString()}`);
+                return settings.isOnline;
             }
         }
         
@@ -359,9 +387,15 @@ exports.getRestaurantSettings = async (req, res) => {
         console.log('🏪 Admin fetching restaurant settings');
         const settings = await RestaurantSettings.getSettings();
         
+        // Return the current status based on auto schedule
+        const status = calculateRestaurantStatus(settings);
+        
         res.json({
             success: true,
-            data: settings
+            data: {
+                ...settings.toObject(),
+                currentStatus: status
+            }
         });
     } catch (error) {
         console.error('❌ Error fetching restaurant settings:', error);
@@ -399,11 +433,30 @@ exports.updateRestaurantSettings = async (req, res) => {
             settings = new RestaurantSettings();
         }
 
+        // CRITICAL: Handle auto schedule toggle
+        const previousAutoSchedule = settings.autoScheduleEnabled;
+        
         // Update fields
         if (typeof isOnline !== 'undefined') settings.isOnline = isOnline;
-        if (typeof autoScheduleEnabled !== 'undefined') settings.autoScheduleEnabled = autoScheduleEnabled;
-        if (typeof manualOverride !== 'undefined') settings.manualOverride = manualOverride;
-        if (manualOverrideExpiry) settings.manualOverrideExpiry = manualOverrideExpiry;
+        if (typeof autoScheduleEnabled !== 'undefined') {
+            settings.autoScheduleEnabled = autoScheduleEnabled;
+            
+            // If turning OFF auto schedule, clear any manual override
+            if (autoScheduleEnabled === false) {
+                settings.manualOverride = false;
+                settings.manualOverrideExpiry = null;
+                console.log('🔧 Auto schedule turned OFF - clearing manual override');
+            }
+        }
+        
+        // Handle manual override from header toggle
+        if (typeof manualOverride !== 'undefined') {
+            settings.manualOverride = manualOverride;
+            if (manualOverrideExpiry) {
+                settings.manualOverrideExpiry = manualOverrideExpiry;
+            }
+            console.log(`🔧 Manual override ${manualOverride ? 'enabled' : 'disabled'}`);
+        }
         
         // Shift 1
         if (typeof shift1Enabled !== 'undefined') settings.shift1Enabled = shift1Enabled;
@@ -426,13 +479,19 @@ exports.updateRestaurantSettings = async (req, res) => {
         settings.lastUpdatedBy = req.user._id;
         settings.lastUpdatedAt = new Date();
 
-        // If manual override is not active, recalculate status based on schedule
-        if (!settings.manualOverride && settings.autoScheduleEnabled) {
-            const newStatus = shouldBeOpen(settings);
-            console.log(`🔄 Auto-schedule recalculated status: ${newStatus ? 'OPEN' : 'CLOSED'}`);
-            settings.isOnline = newStatus;
-        } else if (settings.manualOverride) {
-            console.log(`🔧 Manual override active, keeping status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
+        // CRITICAL: Recalculate status based on new settings
+        if (settings.autoScheduleEnabled) {
+            // If auto schedule is ON and no manual override, calculate from schedule
+            if (!settings.manualOverride) {
+                const newStatus = shouldBeOpen(settings);
+                console.log(`🔄 Auto-schedule recalculated status: ${newStatus ? 'OPEN' : 'CLOSED'}`);
+                settings.isOnline = newStatus;
+            } else {
+                console.log(`🔧 Manual override active, keeping status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
+            }
+        } else {
+            // Auto schedule OFF - keep the manual status from header
+            console.log(`🔧 Auto schedule OFF, using manual status: ${settings.isOnline ? 'OPEN' : 'CLOSED'}`);
         }
 
         await settings.save();
@@ -457,7 +516,8 @@ exports.updateRestaurantSettings = async (req, res) => {
         res.json({
             success: true,
             message: 'Restaurant settings updated successfully',
-            data: settings
+            data: settings,
+            currentStatus: updatedStatus
         });
     } catch (error) {
         console.error('❌ Error updating restaurant settings:', error);
@@ -508,7 +568,8 @@ exports.resetRestaurantSettings = async (req, res) => {
         res.json({
             success: true,
             message: 'Restaurant settings reset to defaults',
-            data: settings
+            data: settings,
+            currentStatus: updatedStatus
         });
     } catch (error) {
         console.error('❌ Error resetting restaurant settings:', error);
