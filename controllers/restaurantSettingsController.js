@@ -16,6 +16,12 @@ const broadcastRestaurantStatus = (status) => {
     });
 };
 
+// Helper function to convert time string to minutes
+const timeToMinutes = (timeStr) => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+};
+
 // Helper function to calculate restaurant status for display
 const calculateRestaurantStatus = (settings) => {
     const now = new Date();
@@ -31,10 +37,8 @@ const calculateRestaurantStatus = (settings) => {
         if (settings.autoScheduleEnabled) {
             // Check shift 1
             if (settings.shift1Enabled) {
-                const [openHour, openMin] = settings.shift1Open.split(':').map(Number);
-                const [closeHour, closeMin] = settings.shift1Close.split(':').map(Number);
-                const openTime = openHour * 60 + openMin;
-                const closeTime = closeHour * 60 + closeMin;
+                const openTime = timeToMinutes(settings.shift1Open);
+                const closeTime = timeToMinutes(settings.shift1Close);
                 
                 if (currentTime >= openTime && currentTime < closeTime) {
                     isOpen = true;
@@ -44,10 +48,8 @@ const calculateRestaurantStatus = (settings) => {
             
             // Check shift 2
             if (!isOpen && settings.shift2Enabled) {
-                const [openHour, openMin] = settings.shift2Open.split(':').map(Number);
-                const [closeHour, closeMin] = settings.shift2Close.split(':').map(Number);
-                const openTime = openHour * 60 + openMin;
-                const closeTime = closeHour * 60 + closeMin;
+                const openTime = timeToMinutes(settings.shift2Open);
+                const closeTime = timeToMinutes(settings.shift2Close);
                 
                 if (currentTime >= openTime && currentTime < closeTime) {
                     isOpen = true;
@@ -65,14 +67,12 @@ const calculateRestaurantStatus = (settings) => {
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
         if (settings.shift1Enabled) {
-            const [openHour, openMin] = settings.shift1Open.split(':').map(Number);
-            const openTime = openHour * 60 + openMin;
+            const openTime = timeToMinutes(settings.shift1Open);
             
             if (currentMinutes < openTime) {
                 nextOpenTime = settings.shift1Open;
             } else if (settings.shift2Enabled) {
-                const [openHour2, openMin2] = settings.shift2Open.split(':').map(Number);
-                const openTime2 = openHour2 * 60 + openMin2;
+                const openTime2 = timeToMinutes(settings.shift2Open);
                 
                 if (currentMinutes < openTime2) {
                     nextOpenTime = settings.shift2Open;
@@ -83,8 +83,7 @@ const calculateRestaurantStatus = (settings) => {
                 nextOpenTime = `Tomorrow ${settings.shift1Open}`;
             }
         } else if (settings.shift2Enabled) {
-            const [openHour, openMin] = settings.shift2Open.split(':').map(Number);
-            const openTime = openHour * 60 + openMin;
+            const openTime = timeToMinutes(settings.shift2Open);
             
             if (currentMinutes < openTime) {
                 nextOpenTime = settings.shift2Open;
@@ -117,7 +116,7 @@ const calculateRestaurantStatus = (settings) => {
     };
 };
 
-// FIXED: Function to check if restaurant should be open based on current time
+// Function to check if restaurant should be open based on current time
 const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -137,10 +136,8 @@ const shouldBeOpen = (settings) => {
     
     // Check shift 1
     if (settings.shift1Enabled) {
-        const [openHour, openMin] = settings.shift1Open.split(':').map(Number);
-        const [closeHour, closeMin] = settings.shift1Close.split(':').map(Number);
-        const openTime = openHour * 60 + openMin;
-        const closeTime = closeHour * 60 + closeMin;
+        const openTime = timeToMinutes(settings.shift1Open);
+        const closeTime = timeToMinutes(settings.shift1Close);
         
         console.log(`Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
         
@@ -152,10 +149,8 @@ const shouldBeOpen = (settings) => {
     
     // Check shift 2
     if (settings.shift2Enabled) {
-        const [openHour, openMin] = settings.shift2Open.split(':').map(Number);
-        const [closeHour, closeMin] = settings.shift2Close.split(':').map(Number);
-        const openTime = openHour * 60 + openMin;
-        const closeTime = closeHour * 60 + closeMin;
+        const openTime = timeToMinutes(settings.shift2Open);
+        const closeTime = timeToMinutes(settings.shift2Close);
         
         console.log(`Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
         
@@ -219,10 +214,8 @@ const checkUpcomingShifts = async () => {
         
         // Check shift 1
         if (settings.shift1Enabled) {
-            const [openHour, openMin] = settings.shift1Open.split(':').map(Number);
-            const [closeHour, closeMin] = settings.shift1Close.split(':').map(Number);
-            const openTime = openHour * 60 + openMin;
-            const closeTime = closeHour * 60 + closeMin;
+            const openTime = timeToMinutes(settings.shift1Open);
+            const closeTime = timeToMinutes(settings.shift1Close);
             
             if (currentMinutes < openTime) {
                 nextEvent = { type: 'OPEN', shift: 'Shift 1', time: openTime, timeStr: settings.shift1Open };
@@ -235,10 +228,8 @@ const checkUpcomingShifts = async () => {
         
         // Check shift 2 (if closer than current next event)
         if (settings.shift2Enabled) {
-            const [openHour, openMin] = settings.shift2Open.split(':').map(Number);
-            const [closeHour, closeMin] = settings.shift2Close.split(':').map(Number);
-            const openTime = openHour * 60 + openMin;
-            const closeTime = closeHour * 60 + closeMin;
+            const openTime = timeToMinutes(settings.shift2Open);
+            const closeTime = timeToMinutes(settings.shift2Close);
             
             if (currentMinutes < openTime && (!nextEventMinutes || openTime < nextEventMinutes)) {
                 nextEvent = { type: 'OPEN', shift: 'Shift 2', time: openTime, timeStr: settings.shift2Open };
@@ -346,7 +337,7 @@ exports.getRestaurantSettings = async (req, res) => {
     }
 };
 
-// FIXED: Update restaurant settings
+// Update restaurant settings
 exports.updateRestaurantSettings = async (req, res) => {
     try {
         console.log('✏️ Admin updating restaurant settings');
