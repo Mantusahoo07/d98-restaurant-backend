@@ -18,6 +18,7 @@ const broadcastRestaurantStatus = (status) => {
 
 // Helper function to convert time string to minutes
 const timeToMinutes = (timeStr) => {
+    if (!timeStr) return 0;
     const [hours, minutes] = timeStr.split(':').map(Number);
     return hours * 60 + minutes;
 };
@@ -123,7 +124,7 @@ const shouldBeOpen = (settings) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     
-    console.log(`=== SHOULD BE OPEN CHECK ===`);
+    console.log(`\n=== SHOULD BE OPEN CHECK ===`);
     console.log(`Current time: ${now.toLocaleTimeString()} (${currentMinutes} minutes)`);
     
     // Check manual override first
@@ -135,33 +136,34 @@ const shouldBeOpen = (settings) => {
             return settings.isOnline;
         } else {
             console.log(`⏰ Manual override expired at ${expiryTime.toLocaleTimeString()}`);
-            // Clear expired override (will be saved later)
             settings.manualOverride = false;
             settings.manualOverrideExpiry = null;
         }
     }
     
     if (settings.specialClosing?.isClosed) {
-        console.log(`Restaurant temporarily closed`);
+        console.log(`❌ Restaurant temporarily closed`);
         return false;
     }
     if (!settings.autoScheduleEnabled) {
-        console.log(`Auto schedule disabled, using manual: ${settings.isOnline}`);
+        console.log(`⚙️ Auto schedule disabled, using manual: ${settings.isOnline}`);
         return settings.isOnline;
     }
     
-    console.log(`Auto schedule enabled: true`);
+    console.log(`📅 Auto schedule enabled, checking shifts...`);
     
     // Check shift 1
     if (settings.shift1Enabled) {
         const openTime = timeToMinutes(settings.shift1Open);
         const closeTime = timeToMinutes(settings.shift1Close);
         
-        console.log(`Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
+        console.log(`   Shift 1: ${settings.shift1Open} (${openTime}) - ${settings.shift1Close} (${closeTime})`);
         
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
-            console.log(`✅ IN SHIFT 1 - Should be OPEN`);
+            console.log(`   ✅ IN SHIFT 1 - Should be OPEN`);
             return true;
+        } else {
+            console.log(`   ❌ NOT in Shift 1`);
         }
     }
     
@@ -170,11 +172,13 @@ const shouldBeOpen = (settings) => {
         const openTime = timeToMinutes(settings.shift2Open);
         const closeTime = timeToMinutes(settings.shift2Close);
         
-        console.log(`Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
+        console.log(`   Shift 2: ${settings.shift2Open} (${openTime}) - ${settings.shift2Close} (${closeTime})`);
         
         if (currentMinutes >= openTime && currentMinutes < closeTime) {
-            console.log(`✅ IN SHIFT 2 - Should be OPEN`);
+            console.log(`   ✅ IN SHIFT 2 - Should be OPEN`);
             return true;
+        } else {
+            console.log(`   ❌ NOT in Shift 2`);
         }
     }
     
@@ -294,6 +298,7 @@ const startScheduler = () => {
     
     // Run every minute
     schedulerJob = cron.schedule('* * * * *', async () => {
+        console.log(`\n🕐 Scheduler running at ${new Date().toLocaleTimeString()}`);
         await updateStatusFromSchedule();
         await checkUpcomingShifts();
     });
@@ -302,6 +307,7 @@ const startScheduler = () => {
     
     // Run immediately on start
     setTimeout(async () => {
+        console.log(`🕐 Initial scheduler run at ${new Date().toLocaleTimeString()}`);
         await updateStatusFromSchedule();
         await checkUpcomingShifts();
     }, 5000);
